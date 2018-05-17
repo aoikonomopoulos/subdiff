@@ -18,7 +18,18 @@ fn read_lines(p : &Path) -> io::Result<Vec<String>> {
     f.lines().collect::<io::Result<Vec<String>>>()
 }
 
+fn exist_differences(results : &[DiffResult<String>]) -> bool {
+    results.iter().any(|r|
+                       match r {
+                           DiffResult::Common (_) => false,
+                           _ => true,
+                       })
+}
+
 fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io::Result<()> {
+    if !exist_differences(&diff) {
+        return Ok (());
+    }
     // When lines are changed, lcs_diff returns the adds before the removes.
     // However, we want to follow the practice of most diff programs and
     // print out the removes before the adds. So we set aside any consecutive
@@ -81,6 +92,21 @@ mod tests {
     use std::process::Command;
     use std::ffi::OsStr;
 
+    fn skip_past_third_newline(bytes : &Vec<u8>) -> Option<usize> {
+        let mut cnt = 0;
+        bytes.iter().position(|&el|
+                       if el == b'\n' {
+                           if cnt == 2 {
+                               true
+                           } else {
+                               cnt += 1;
+                               false
+                           }
+                       } else {
+                           false
+                       }).map(|pos| pos + 1)
+    }
+
     fn test_diff(dir : &temporary::Directory,
                  lines1 : Vec<&str>, lines2 : Vec<&str>) {
         let old_p = dir.join("old");
@@ -99,31 +125,16 @@ mod tests {
         let outp = Command::new("diff")
             .args(&[OsStr::new("-U"), OsStr::new("100"), old_p.as_os_str(), new_p.as_os_str()])
             .output().unwrap();
-        let mut cnt = 0;
-        let pos = outp.stdout.iter().position(|&el|
-                             if el == b'\n' {
-                                 if cnt == 2 {
-                                     true
-                                 } else {
-                                     cnt += 1;
-                                     false
-                                 }
-                             } else {
-                                 false
-                             }).unwrap_or(0);
-        //        let diff_output = &outp.stdout[pos..];
-        if pos != 0 {
-            let diff_output = &outp.stdout[(pos + 1)..];
-            let mut our_output : Vec<u8> = vec![];
-            diff_files(&mut our_output, &old_p, &new_p);
-            if our_output != diff_output {
-                eprintln!("outputs differ! ours:");
-                io::stderr().write(&our_output).unwrap();
-                eprintln!("diff's:");
-                io::stderr().write(diff_output).unwrap();
-            }
-        } else {
-            // XXX: ensure we don't produce any output when there are no differences
+        let pos = skip_past_third_newline(&outp.stdout).unwrap_or(0);
+        let diff_output = &outp.stdout[pos..];
+        let mut our_output : Vec<u8> = vec![];
+        diff_files(&mut our_output, &old_p, &new_p);
+        if our_output != diff_output {
+            eprintln!("outputs differ! ours:");
+            io::stderr().write(&our_output).unwrap();
+            eprintln!("diff's:");
+            io::stderr().write(diff_output).unwrap();
+            panic!("Output differs to the system diff output")
         }
     }
     #[test]
