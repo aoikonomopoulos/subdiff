@@ -12,7 +12,7 @@ fn read_lines(p : &str) -> io::Result<Vec<String>> {
     f.lines().collect::<io::Result<Vec<String>>>()
 }
 
-fn display_diff_unified(diff : &Vec<DiffResult<String>>) {
+fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io::Result<()> {
     // When lines are changed, lcs_diff returns the adds before the removes.
     // However, we want to follow the practice of most diff programs and
     // print out the removes before the adds. So we set aside any consecutive
@@ -29,7 +29,7 @@ fn display_diff_unified(diff : &Vec<DiffResult<String>>) {
                     // the pending adds before adding the new
                     // (current) one
                     for pa in pending_adds.drain(..) {
-                        println!("+{}", pa)
+                        writeln!(out, "+{}", pa)?;
                     }
                 }
                 // Any following adds should be added to the queue
@@ -41,22 +41,23 @@ fn display_diff_unified(diff : &Vec<DiffResult<String>>) {
                 // that they will be followed by removals. As this is
                 // a common line, we need to drain them now.
                 for pa in pending_adds.drain(..) {
-                    println!("+{}", pa)
+                    writeln!(out, "+{}", pa)?;
                 }
-                println!(" {}", c.data)
+                writeln!(out, " {}", c.data)?;
             },
             DiffResult::Removed(r) => {
                 // Pop the cork; we've seen a remove, so any subsequent
                 // diff result that is not a remove should cause the
                 // pending adds to be dumped.
                 corked = false;
-                println!("-{}", r.data)
+                writeln!(out, "-{}", r.data)?;
             },
         }
     }
     for pa in pending_adds.drain(..) {
-        println!("+{}", pa)
+        writeln!(out, "+{}", pa)?;
     }
+    Ok (())
 }
 
 fn main() {
@@ -68,5 +69,5 @@ fn main() {
     let new_lines = read_lines(new).unwrap();
 
     let diff : Vec<DiffResult<String>> = lcs_diff::diff(&old_lines, &new_lines);
-    display_diff_unified(&diff);
+    display_diff_unified(&mut io::stdout(), &mut &diff).unwrap();
 }
