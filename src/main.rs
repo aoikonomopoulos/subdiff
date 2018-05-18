@@ -27,7 +27,10 @@ fn exist_differences(results : &[DiffResult<String>]) -> bool {
                        })
 }
 
-fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io::Result<i32> {
+fn display_diff_unified(out : &mut Write,
+                        old_lines : &Vec<String>,
+                        new_lines : &Vec<String>,
+                        diff : &Vec<DiffResult<String>>) -> io::Result<i32> {
     if !exist_differences(&diff) {
         return Ok (0);
     }
@@ -52,7 +55,7 @@ fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io
                 }
                 // Any following adds should be added to the queue
                 corked = true;
-                pending_adds.push(&a.data)
+                pending_adds.push(&new_lines[a.new_index.unwrap()])
             },
             DiffResult::Common(c) => {
                 // Adds are only pending while there is the possibility
@@ -61,14 +64,14 @@ fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io
                 for pa in pending_adds.drain(..) {
                     writeln!(out, "+{}", pa)?;
                 }
-                writeln!(out, " {}", c.data)?;
+                writeln!(out, " {}", &old_lines[c.old_index.unwrap()])?;
             },
             DiffResult::Removed(r) => {
                 // Pop the cork; we've seen a remove, so any subsequent
                 // diff result that is not a remove should cause the
                 // pending adds to be dumped.
                 corked = false;
-                writeln!(out, "-{}", r.data)?;
+                writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
             },
         }
     }
@@ -83,7 +86,7 @@ fn diff_files(out : &mut Write, old : &Path, new : &Path) -> io::Result<i32> {
     let new_lines = read_lines(new)?;
 
     let diff : Vec<DiffResult<String>> = lcs_diff::diff(&old_lines, &new_lines);
-    display_diff_unified(out, &mut &diff)
+    display_diff_unified(out, &old_lines, &new_lines, &mut &diff)
 }
 
 #[cfg(test)]
