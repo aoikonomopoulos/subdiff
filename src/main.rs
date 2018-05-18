@@ -11,6 +11,7 @@ use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
+use std::process::exit;
 
 fn read_lines(p : &Path) -> io::Result<Vec<String>> {
     let f = File::open(p)?;
@@ -26,9 +27,9 @@ fn exist_differences(results : &[DiffResult<String>]) -> bool {
                        })
 }
 
-fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io::Result<()> {
+fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io::Result<i32> {
     if !exist_differences(&diff) {
-        return Ok (());
+        return Ok (0);
     }
     // When lines are changed, lcs_diff returns the adds before the removes.
     // However, we want to follow the practice of most diff programs and
@@ -74,15 +75,15 @@ fn display_diff_unified(out : &mut Write, diff : &Vec<DiffResult<String>>) -> io
     for pa in pending_adds.drain(..) {
         writeln!(out, "+{}", pa)?;
     }
-    Ok (())
+    Ok (1)
 }
 
-fn diff_files(out : &mut Write, old : &Path, new : &Path) {
-    let old_lines = read_lines(old).unwrap();
-    let new_lines = read_lines(new).unwrap();
+fn diff_files(out : &mut Write, old : &Path, new : &Path) -> io::Result<i32> {
+    let old_lines = read_lines(old)?;
+    let new_lines = read_lines(new)?;
 
     let diff : Vec<DiffResult<String>> = lcs_diff::diff(&old_lines, &new_lines);
-    display_diff_unified(out, &mut &diff).unwrap();
+    display_diff_unified(out, &mut &diff)
 }
 
 #[cfg(test)]
@@ -128,7 +129,7 @@ mod tests {
         let pos = skip_past_third_newline(&outp.stdout).unwrap_or(0);
         let diff_output = &outp.stdout[pos..];
         let mut our_output : Vec<u8> = vec![];
-        diff_files(&mut our_output, &old_p, &new_p);
+        diff_files(&mut our_output, &old_p, &new_p).unwrap();
         if our_output != diff_output {
             eprintln!("outputs differ! ours:");
             io::stderr().write(&our_output).unwrap();
@@ -154,5 +155,14 @@ mod tests {
 
 fn main() {
     let args : Vec<String> = env::args().collect();
-    diff_files(&mut io::stdout(), Path::new(&args[1]), Path::new(&args[2]));
+    let ecode = match diff_files(&mut io::stdout(),
+                                 Path::new(&args[1]),
+                                 Path::new(&args[2])) {
+        Ok (ecode) => ecode,
+        Err (err) => {
+            eprintln!("Error comparing files: {}", err);
+            2
+        },
+    };
+    exit(ecode);
 }
