@@ -30,10 +30,16 @@ fn exist_differences(results : &[DiffResult<String>]) -> bool {
 
 #[derive(Debug)]
 enum State<'a> {
-    Initial,
     CollectingAdds(Vec<&'a str>),
-    CollectingCommonsBefore(VecDeque<&'a str>),
-    CollectingCommonsAfter(VecDeque<&'a str>),
+
+    // Collect common (context) lines _before_ a change:
+    // Hold on to the last N common lines we've seen.
+    CollectingCommonsTail(usize, VecDeque<&'a str>),
+
+    // Collect common (context) lines _after_ a change:
+    // Accumulate up to $context lines, emit them, then switch
+    // to CollectingCommonsTail.
+    CollectingCommonsCorked(VecDeque<&'a str>),
     SequentialRemoves(Vec<&'a str>),
 }
 
@@ -46,28 +52,11 @@ fn display_diff_unified(out : &mut Write,
         return Ok (0);
     }
     let context = 3;
-    let mut state = Initial;
+    let mut state = CollectingCommonsTail(context + 1, VecDeque::new());
     for d in diff {
         eprintln!("state = {:?}", state);
         eprintln!("processing diff result: {:?}", d);
         state = match state {
-            Initial => {
-                match d {
-                    DiffResult::Added(a) => {
-                        let adds = vec![&new_lines[a.new_index.unwrap()][..]];
-                        CollectingAdds(adds)
-                    },
-                    DiffResult::Removed(r) => {
-                        writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
-                        Initial
-                    },
-                    DiffResult::Common(c) => {
-                        let mut commons = VecDeque::new();
-                        commons.push_back(&new_lines[c.new_index.unwrap()][..]);
-                        CollectingCommonsBefore(commons)
-                    },
-                }
-            },
             CollectingAdds(mut adds) => {
                 match d {
                     DiffResult::Added(a) => {
@@ -84,36 +73,42 @@ fn display_diff_unified(out : &mut Write,
                         }
                         let mut commons = VecDeque::new();
                         commons.push_back(&new_lines[c.new_index.unwrap()][..]);
-                        CollectingCommonsAfter(commons)
+                        CollectingCommonsCorked(commons)
                     },
                 }
             },
-            CollectingCommonsBefore(mut commons_before) => {
+            CollectingCommonsTail(seen, mut commons) => {
                 match d {
                     DiffResult::Added(a) => {
-                        for pc in commons_before.drain(..) {
+                        if seen > context {
+                            writeln!(out, "--")?;
+                        }
+                        for pc in commons.drain(..) {
                             writeln!(out, " {}", pc)?;
                         }
                         let adds = vec![&new_lines[a.new_index.unwrap()][..]];
                         CollectingAdds(adds)
                     },
                     DiffResult::Removed(r) => {
-                        for pc in commons_before.drain(..) {
+                        if seen > context {
+                            writeln!(out, "--")?;
+                        }
+                        for pc in commons.drain(..) {
                             writeln!(out, " {}", pc)?;
                         }
                         writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
                         SequentialRemoves(vec![])
                     },
                     DiffResult::Common(c) => {
-                        commons_before.push_back(&new_lines[c.new_index.unwrap()]);
-                        if commons_before.len() > context {
-                            commons_before.pop_front();
+                        commons.push_back(&new_lines[c.new_index.unwrap()]);
+                        if commons.len() > context {
+                            commons.pop_front();
                         }
-                        CollectingCommonsBefore(commons_before)
+                        CollectingCommonsTail(seen + 1, commons)
                     },
                 }
             },
-            CollectingCommonsAfter(mut commons_after) => {
+            CollectingCommonsCorked(mut commons_after) => {
                 match d {
                     DiffResult::Added(a) => {
                         for pc in commons_after.drain(..) {
@@ -135,9 +130,9 @@ fn display_diff_unified(out : &mut Write,
                             for pc in commons_after.drain(..) {
                                 writeln!(out, " {}", pc)?;
                             }
-                            CollectingCommonsBefore(VecDeque::new())
+                            CollectingCommonsTail(0, VecDeque::new())
                         } else {
-                            CollectingCommonsAfter(commons_after)
+                            CollectingCommonsCorked(commons_after)
                         }
                     },
                 }
@@ -162,7 +157,7 @@ fn display_diff_unified(out : &mut Write,
                         let mut commons = VecDeque::new();
                         // XXX: handle context = 0
                         commons.push_back(&new_lines[c.new_index.unwrap()][..]);
-                        CollectingCommonsAfter(commons)
+                        CollectingCommonsCorked(commons)
                     },
                 }
 
@@ -172,20 +167,15 @@ fn display_diff_unified(out : &mut Write,
     eprintln!("Handling final state: {:?}", state);
     // Cleanup
     match state {
-        Initial => (),
         CollectingAdds (mut adds) => {
             for pa in adds.drain(..) {
                 writeln!(out, "+{}", pa)?;
             }
         },
-        CollectingCommonsBefore(mut commons) => {
+        CollectingCommonsTail(_, mut commons) => (),
+        CollectingCommonsCorked(mut commons) => {
             for pc in commons.drain(..) {
-                writeln!(out, "{}", pc)?;
-            }
-        },
-        CollectingCommonsAfter(mut commons) => {
-            for pc in commons.drain(..) {
-                writeln!(out, "{}", pc)?;
+                writeln!(out, " {}", pc)?;
             }
         },
         SequentialRemoves(mut adds) => {
@@ -266,11 +256,11 @@ mod tests {
     use std::process::Command;
     use std::ffi::OsStr;
 
-    fn skip_past_third_newline(bytes : &Vec<u8>) -> Option<usize> {
+    fn skip_past_second_newline(bytes : &Vec<u8>) -> Option<usize> {
         let mut cnt = 0;
         bytes.iter().position(|&el|
                        if el == b'\n' {
-                           if cnt == 2 {
+                           if cnt == 1 {
                                true
                            } else {
                                cnt += 1;
@@ -299,15 +289,25 @@ mod tests {
         let outp = Command::new("diff")
             .args(&[OsStr::new("-U"), OsStr::new("3"), old_p.as_os_str(), new_p.as_os_str()])
             .output().unwrap();
-        let pos = skip_past_third_newline(&outp.stdout).unwrap_or(0);
-        let diff_output = &outp.stdout[pos..];
+        let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
+        let diff_output_before = &outp.stdout[pos..];
+        let mut diff_output : Vec<u8> = vec![];
+        for line in diff_output_before.lines() {
+            let line = line.unwrap();
+            if line.starts_with("@@") && line.ends_with("@@") {
+                diff_output.extend("--".bytes())
+            } else {
+                diff_output.extend(line.bytes())
+            }
+            diff_output.extend("\n".bytes())
+        }
         let mut our_output : Vec<u8> = vec![];
         diff_files(&mut our_output, &old_p, &new_p).unwrap();
         if our_output != diff_output {
             eprintln!("outputs differ! ours:");
             io::stderr().write(&our_output).unwrap();
             eprintln!("diff's:");
-            io::stderr().write(diff_output).unwrap();
+            io::stderr().write(&diff_output).unwrap();
             panic!("Output differs to the system diff output")
         }
     }
@@ -319,8 +319,11 @@ mod tests {
         let combos2 : Vec<Vec<&str>> = lines.iter().cloned().combinations(8).collect();
         let prod = iproduct!(combos1, combos2);
         let tmpdir = temporary::Directory::new("diff-test").unwrap();
+        let mut cnt = 0;
         for p in prod {
-            test_diff(&tmpdir, p.0, p.1)
+            eprintln!("Testing combo #{}", cnt);
+            test_diff(&tmpdir, p.0, p.1);
+            cnt += 1
         }
         tmpdir.remove().unwrap()
     }
