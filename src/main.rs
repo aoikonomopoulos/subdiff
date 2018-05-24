@@ -12,6 +12,7 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
 use std::process::exit;
+use std::collections::VecDeque;
 
 fn read_lines(p : &Path) -> io::Result<Vec<String>> {
     let f = File::open(p)?;
@@ -27,7 +28,176 @@ fn exist_differences(results : &[DiffResult<String>]) -> bool {
                        })
 }
 
+#[derive(Debug)]
+enum State<'a> {
+    Initial,
+    CollectingAdds(Vec<&'a str>),
+    CollectingCommonsBefore(VecDeque<&'a str>),
+    CollectingCommonsAfter(VecDeque<&'a str>),
+    SequentialRemoves(Vec<&'a str>),
+}
+
 fn display_diff_unified(out : &mut Write,
+                        old_lines : &Vec<String>,
+                        new_lines : &Vec<String>,
+                        diff : &Vec<DiffResult<String>>) -> io::Result<i32> {
+    use State::*;
+    if !exist_differences(&diff) {
+        return Ok (0);
+    }
+    let context = 3;
+    let mut state = Initial;
+    for d in diff {
+        eprintln!("state = {:?}", state);
+        eprintln!("processing diff result: {:?}", d);
+        state = match state {
+            Initial => {
+                match d {
+                    DiffResult::Added(a) => {
+                        let adds = vec![&new_lines[a.new_index.unwrap()][..]];
+                        CollectingAdds(adds)
+                    },
+                    DiffResult::Removed(r) => {
+                        writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
+                        Initial
+                    },
+                    DiffResult::Common(c) => {
+                        let mut commons = VecDeque::new();
+                        commons.push_back(&new_lines[c.new_index.unwrap()][..]);
+                        CollectingCommonsBefore(commons)
+                    },
+                }
+            },
+            CollectingAdds(mut adds) => {
+                match d {
+                    DiffResult::Added(a) => {
+                        adds.push(&new_lines[a.new_index.unwrap()]);
+                        CollectingAdds(adds)
+                    },
+                    DiffResult::Removed(r) => {
+                        writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
+                        SequentialRemoves(adds)
+                    },
+                    DiffResult::Common(c) => {
+                        for pa in adds.drain(..) {
+                            writeln!(out, "+{}", pa)?;
+                        }
+                        let mut commons = VecDeque::new();
+                        commons.push_back(&new_lines[c.new_index.unwrap()][..]);
+                        CollectingCommonsAfter(commons)
+                    },
+                }
+            },
+            CollectingCommonsBefore(mut commons_before) => {
+                match d {
+                    DiffResult::Added(a) => {
+                        for pc in commons_before.drain(..) {
+                            writeln!(out, " {}", pc)?;
+                        }
+                        let adds = vec![&new_lines[a.new_index.unwrap()][..]];
+                        CollectingAdds(adds)
+                    },
+                    DiffResult::Removed(r) => {
+                        for pc in commons_before.drain(..) {
+                            writeln!(out, " {}", pc)?;
+                        }
+                        writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
+                        SequentialRemoves(vec![])
+                    },
+                    DiffResult::Common(c) => {
+                        commons_before.push_back(&new_lines[c.new_index.unwrap()]);
+                        if commons_before.len() > context {
+                            commons_before.pop_front();
+                        }
+                        CollectingCommonsBefore(commons_before)
+                    },
+                }
+            },
+            CollectingCommonsAfter(mut commons_after) => {
+                match d {
+                    DiffResult::Added(a) => {
+                        for pc in commons_after.drain(..) {
+                            writeln!(out, " {}", pc)?;
+                        }
+                        let adds = vec![&new_lines[a.new_index.unwrap()][..]];
+                        CollectingAdds(adds)
+                    },
+                    DiffResult::Removed(r) => {
+                        for pc in commons_after.drain(..) {
+                            writeln!(out, " {}", pc)?;
+                        }
+                        writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
+                        SequentialRemoves(vec![])
+                    },
+                    DiffResult::Common(c) => {
+                        commons_after.push_back(&new_lines[c.new_index.unwrap()]);
+                        if commons_after.len() == context {
+                            for pc in commons_after.drain(..) {
+                                writeln!(out, " {}", pc)?;
+                            }
+                            CollectingCommonsBefore(VecDeque::new())
+                        } else {
+                            CollectingCommonsAfter(commons_after)
+                        }
+                    },
+                }
+            },
+            SequentialRemoves(mut adds) => {
+                match d {
+                    DiffResult::Added(a) => {
+                        for pa in adds.drain(..) {
+                            writeln!(out, "+{}", pa)?;
+                        }
+                        let adds = vec![&new_lines[a.new_index.unwrap()][..]];
+                        CollectingAdds(adds)
+                    },
+                    DiffResult::Removed(r) => {
+                        writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
+                        SequentialRemoves(adds)
+                    },
+                    DiffResult::Common(c) => {
+                        for pa in adds.drain(..) {
+                            writeln!(out, "+{}", pa)?;
+                        }
+                        let mut commons = VecDeque::new();
+                        // XXX: handle context = 0
+                        commons.push_back(&new_lines[c.new_index.unwrap()][..]);
+                        CollectingCommonsAfter(commons)
+                    },
+                }
+
+            },
+        }
+    }
+    eprintln!("Handling final state: {:?}", state);
+    // Cleanup
+    match state {
+        Initial => (),
+        CollectingAdds (mut adds) => {
+            for pa in adds.drain(..) {
+                writeln!(out, "+{}", pa)?;
+            }
+        },
+        CollectingCommonsBefore(mut commons) => {
+            for pc in commons.drain(..) {
+                writeln!(out, "{}", pc)?;
+            }
+        },
+        CollectingCommonsAfter(mut commons) => {
+            for pc in commons.drain(..) {
+                writeln!(out, "{}", pc)?;
+            }
+        },
+        SequentialRemoves(mut adds) => {
+            for pa in adds.drain(..) {
+                writeln!(out, "+{}", pa)?;
+            }
+        }
+    };
+    Ok (1)
+}
+
+fn display_diff_unified2(out : &mut Write,
                         old_lines : &Vec<String>,
                         new_lines : &Vec<String>,
                         diff : &Vec<DiffResult<String>>) -> io::Result<i32> {
@@ -127,7 +297,7 @@ mod tests {
         }
         new.flush().unwrap();
         let outp = Command::new("diff")
-            .args(&[OsStr::new("-U"), OsStr::new("100"), old_p.as_os_str(), new_p.as_os_str()])
+            .args(&[OsStr::new("-U"), OsStr::new("3"), old_p.as_os_str(), new_p.as_os_str()])
             .output().unwrap();
         let pos = skip_past_third_newline(&outp.stdout).unwrap_or(0);
         let diff_output = &outp.stdout[pos..];
