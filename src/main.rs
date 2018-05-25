@@ -221,60 +221,6 @@ fn display_diff_unified(out : &mut Write,
     Ok (1)
 }
 
-fn display_diff_unified2(out : &mut Write,
-                        old_lines : &Vec<String>,
-                        new_lines : &Vec<String>,
-                        diff : &Vec<DiffResult<String>>) -> io::Result<i32> {
-    if !exist_differences(&diff) {
-        return Ok (0);
-    }
-    // When lines are changed, lcs_diff returns the adds before the removes.
-    // However, we want to follow the practice of most diff programs and
-    // print out the removes before the adds. So we set aside any consecutive
-    // additions and print them (a) immediately, when we run into a common line
-    // (b) after any number of consecutive removals.
-    let mut pending_adds = vec![];
-    let mut corked = true;
-    for d in diff {
-        match d {
-            DiffResult::Added(a) => {
-                if !corked {
-                    // The pending adds are uncorked when there's an
-                    // intervening remove. If so, we should drain the
-                    // the pending adds before adding the new
-                    // (current) one
-                    for pa in pending_adds.drain(..) {
-                        writeln!(out, "+{}", pa)?;
-                    }
-                }
-                // Any following adds should be added to the queue
-                corked = true;
-                pending_adds.push(&new_lines[a.new_index.unwrap()])
-            },
-            DiffResult::Common(c) => {
-                // Adds are only pending while there is the possibility
-                // that they will be followed by removals. As this is
-                // a common line, we need to drain them now.
-                for pa in pending_adds.drain(..) {
-                    writeln!(out, "+{}", pa)?;
-                }
-                writeln!(out, " {}", &old_lines[c.old_index.unwrap()])?;
-            },
-            DiffResult::Removed(r) => {
-                // Pop the cork; we've seen a remove, so any subsequent
-                // diff result that is not a remove should cause the
-                // pending adds to be dumped.
-                corked = false;
-                writeln!(out, "-{}", &old_lines[r.old_index.unwrap()])?;
-            },
-        }
-    }
-    for pa in pending_adds.drain(..) {
-        writeln!(out, "+{}", pa)?;
-    }
-    Ok (1)
-}
-
 fn diff_files(out : &mut Write, old : &Path, new : &Path) -> io::Result<i32> {
     let old_lines = read_lines(old)?;
     let new_lines = read_lines(new)?;
