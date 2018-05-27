@@ -156,12 +156,37 @@ fn display_diff_unified(out : &mut Write,
     }
     let context = 3;
 
-    // We always need to print out a hunk header when we start, so use
-    // the same code path, forcing a header to be printed by pretending
-    // we've observed lots of common lines already.
-    let mut state = CollectingCommonsTail(None, context + 1, VecDeque::new());
+    let mut diff_results = diff.into_iter();
+    // In case the first diff result is an add or a remove, we need
+    // to manually note down the start line in the hunk
+    let mut state = match diff_results.next() {
+        None => panic!("No differences at all, should have returned earlier"),
+        Some (d) => {
+            let mut h = Hunk {
+                old_start : 0,
+                old_len : 0,
+                new_start : 0,
+                new_len : 0,
+                lines : vec![]
+            };
+            match d {
+                DiffResult::Common(_) => {
+                    let mut commons = VecDeque::new();
+                    commons.push_back(d);
+                    CollectingCommonsTail(None, 1, commons)
+                },
+                DiffResult::Added(_) => {
+                    CollectingAdds(Some (h), vec![d])
+                },
+                DiffResult::Removed(_) => {
+                    h.append(old_lines, new_lines, &d);
+                    SequentialRemoves(Some (h), vec![])
+                },
+            }
+        }
+    };
 
-    for d in diff {
+    for d in diff_results {
         eprintln!("state = {:?}", state);
         eprintln!("processing diff result: {:?}", d);
         state = match state {
@@ -194,18 +219,20 @@ fn display_diff_unified(out : &mut Write,
                     // If the state changes, print out the last N lines, possibly
                     // preceeded by a header
                     DiffResult::Added(_) => {
-                        // if seen > context {
-                        //     writeln!(out, "--")?;
-                        // }
+                        if seen > context {
+                            dump_hunk(out, hunk.as_ref());
+                            hunk = None
+                        }
                         for pc in commons.drain(..) {
                             append(old_lines, new_lines, &mut hunk, &pc);
                         }
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
-                        // if seen > context {
-                        //     writeln!(out, "--")?;
-                        // }
+                        if seen > context {
+                            dump_hunk(out, hunk.as_ref());
+                            hunk = None
+                        }
                         for pc in commons.drain(..) {
                             append(old_lines, new_lines, &mut hunk, &pc);
                         }
@@ -246,8 +273,7 @@ fn display_diff_unified(out : &mut Write,
                             for pc in commons.drain(..) {
                                 append(old_lines, new_lines, &mut hunk, &pc);
                             }
-                            dump_hunk(out, hunk.as_ref());
-                            CollectingCommonsTail(None, 0, VecDeque::new())
+                            CollectingCommonsTail(hunk, 0, VecDeque::new())
                         } else {
                             CollectingCommonsCorked(hunk, commons)
                         }
@@ -295,7 +321,7 @@ fn display_diff_unified(out : &mut Write,
         },
         // Those are common lines we collected in anticipation of the
         // next change. No change is coming any more, so drop them here.
-        CollectingCommonsTail(_, _, _) => None,
+        CollectingCommonsTail(mut hunk, _, _) => hunk,
         // We'll get here if there were < $context common lines between
         // the last change and the end of the file. We still need to
         // print them.
