@@ -395,9 +395,6 @@ mod tests {
             .output().unwrap();
         let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
         let diff_output = &outp.stdout[pos..];
-        eprintln!("diff's output");
-        use std::io::stderr;
-        stderr().write(diff_output);
         let mut our_output : Vec<u8> = vec![];
         diff_files(&mut our_output, &old_p, &new_p).unwrap();
         if our_output != diff_output {
