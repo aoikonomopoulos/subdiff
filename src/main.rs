@@ -28,21 +28,25 @@ fn exist_differences(results : &[DiffResult<String>]) -> bool {
                        })
 }
 
-fn diff_elem<T : PartialEq + Clone>(d : &DiffResult<T>) -> &DiffElement<T> {
+fn diff_offsets<T : PartialEq + Clone>(d : &DiffResult<T>) -> (Option<usize>, Option<usize>) {
     match d {
-        DiffResult::Added(ref el)
-            | DiffResult::Removed(ref el)
-            | DiffResult::Common(ref el) => el
+        DiffResult::Added(el)
+            | DiffResult::Removed(el)
+            | DiffResult::Common(el) => (el.old_index, el.new_index)
     }
 }
 
+// The main difficulty in imitating diff's output is that the hunk header
+// includes the length of the hunk, so we have to buffer our output and
+// only print it out when we know the current hunk has ended. This saves
+// the info we need in order to display the hunk header and related lines.
 #[derive(Debug)]
 struct Hunk {
     old_start : usize,
     old_len : usize,
     new_start : usize,
     new_len : usize,
-    lines : Vec<String>,
+    lines : Vec<DiffResult<String>>,
 }
 
 impl Hunk {
@@ -56,19 +60,15 @@ impl Hunk {
             lines : vec![]
         }
     }
-    fn from_diff(d : &DiffResult<String>, s : &str) -> Hunk {
-        use std::fmt::Write;
-        let el = diff_elem(d);
-        match (el.old_index, el.new_index) {
+    fn from_diff(d : DiffResult<String>) -> Hunk {
+        match diff_offsets(&d) {
             (Some (o), Some (n)) => {
-                let mut out = String::new();
-                writeln!(out, " {}", s);
                 Hunk {
                     old_start : o,
                     old_len : 1,
                     new_start : n,
                     new_len : 1,
-                    lines : vec![out],
+                    lines : vec![d],
                 }
             },
             _ => {
@@ -76,59 +76,57 @@ impl Hunk {
             },
         }
     }
-    fn write(&self, out : &mut Write) -> io::Result<()> {
+    fn write(&self, old_lines : &Vec<String>, new_lines : &Vec<String>,
+             out : &mut Write) -> io::Result<()> {
+        use std::fmt::Write;
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len);
-        for l in &self.lines {
-            out.write(l.as_bytes())?;
-        }
+        for d in &self.lines {
+            match diff_offsets(d) {
+                (Some (o), Some (_)) => writeln!(out, " {}", &old_lines[o][..])?,
+                (Some (o), None) => writeln!(out, "-{}", &old_lines[o][..])?,
+                (None, Some (n)) => writeln!(out, "+{}", &new_lines[n][..])?,
+                _ => panic!("Can't print DiffElement with neither side"),
+            }
+        };
         Ok (())
     }
-    fn append(&mut self, old_lines : &Vec<String>, new_lines : &Vec<String>,
-              d : &DiffResult<String>) {
-        use std::fmt::Write;
-        let mut out = String::new();
-        let el = diff_elem(d);
-        match (el.old_index, el.new_index) {
+    fn append(&mut self, d : DiffResult<String>) {
+        match diff_offsets(&d){
             (Some (o), Some (_)) => { // Common
                 self.old_len += 1;
                 self.new_len += 1;
-                writeln!(out, " {}", &old_lines[o][..])
             },
             (Some (o), None) => { // Removal
                 self.old_len += 1;
-                writeln!(out, "-{}", &old_lines[o][..])
             },
             (None, Some (n)) => { // Addition
                 self.new_len += 1;
-                writeln!(out, "+{}", &new_lines[n][..])
             },
             _ => {
                 panic!("DiffElement with neither side")
             },
         };
-        self.lines.push(out)
+        self.lines.push(d)
     }
 }
 
-fn dump_hunk(out : &mut Write, hunk : Option<&Hunk>) -> io::Result<()> {
+fn dump_hunk(out : &mut Write,
+             old_lines : &Vec<String>,
+             new_lines : &Vec<String>, hunk : Option<&Hunk>) -> io::Result<()> {
     eprintln!("In dump_hunk");
     match hunk {
         None => Ok (()),
         Some (hunk) => {
-            hunk.write(out)
+            hunk.write(old_lines, new_lines, out)
         }
     }
 }
 
-fn append<'a>(old_lines : &Vec<String>, new_lines : &Vec<String>,
-              hunk : &mut Option<Hunk>, d : &DiffResult<String>) {
+fn append<'a>(hunk : &mut Option<Hunk>, d : DiffResult<String>) {
     match hunk {
-        None => {
-            let out = old_lines[diff_elem(d).old_index.unwrap()].to_owned();
-            hunk.get_or_insert_with(|| Hunk::from_diff(d, &out));
-        },
-        Some (h) => h.append(old_lines, new_lines, d)
+        None => {hunk.get_or_insert_with(|| Hunk::from_diff(d));},
+        Some (h) => h.append(d),
     }
 }
 
@@ -189,7 +187,7 @@ fn display_diff_unified(out : &mut Write,
                     CollectingAdds(Some (h), vec![d])
                 },
                 DiffResult::Removed(_) => {
-                    h.append(old_lines, new_lines, &d);
+                    h.append(d);
                     SequentialRemoves(Some (h), vec![])
                 },
             }
@@ -207,14 +205,14 @@ fn display_diff_unified(out : &mut Write,
                         CollectingAdds(hunk, adds) // Still collecting adds
                     },
                     DiffResult::Removed(_) => {
-                        append(old_lines, new_lines, &mut hunk, &d);
+                        append(&mut hunk, d);
                         // Change states, holding on to the pending adds
                         SequentialRemoves(hunk, adds)
                     },
                     DiffResult::Common(_) => {
                         // No adjacent removes, time to print out the adds
                         for pa in adds.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pa);
+                            append(&mut hunk, pa);
                         }
                         let mut commons = VecDeque::new();
                         commons.push_back(d);
@@ -230,23 +228,23 @@ fn display_diff_unified(out : &mut Write,
                     // preceeded by a header
                     DiffResult::Added(_) => {
                         if seen > context {
-                            dump_hunk(out, hunk.as_ref());
+                            dump_hunk(out, old_lines, new_lines, hunk.as_ref());
                             hunk = None
                         }
                         for pc in commons.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pc);
+                            append(&mut hunk, pc);
                         }
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
                         if seen > context {
-                            dump_hunk(out, hunk.as_ref());
+                            dump_hunk(out, old_lines, new_lines, hunk.as_ref());
                             hunk = None
                         }
                         for pc in commons.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pc);
+                            append(&mut hunk, pc);
                         }
-                        append(old_lines, new_lines, &mut hunk, &d);
+                        append(&mut hunk, d);
                         SequentialRemoves(hunk, vec![])
                     },
                     DiffResult::Common(_) => {
@@ -263,15 +261,15 @@ fn display_diff_unified(out : &mut Write,
                     // State change -> print collected common lines
                     DiffResult::Added(_) => {
                         for pc in commons.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pc);
+                            append(&mut hunk, pc);
                         }
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
                         for pc in commons.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pc);
+                            append(&mut hunk, pc);
                         }
-                        append(old_lines, new_lines, &mut hunk, &d);
+                        append(&mut hunk, d);
                         SequentialRemoves(hunk, vec![])
                     },
                     DiffResult::Common(_) => {
@@ -281,7 +279,7 @@ fn display_diff_unified(out : &mut Write,
                             // a change; print out the hunk, then start collecting
                             // common lines to print _before_ the next change.
                             for pc in commons.drain(..) {
-                                append(old_lines, new_lines, &mut hunk, &pc);
+                                append(&mut hunk, pc);
                             }
                             CollectingCommonsTail(hunk, 0, VecDeque::new())
                         } else {
@@ -295,18 +293,18 @@ fn display_diff_unified(out : &mut Write,
                     // State change -> time to print out the pending adds
                     DiffResult::Added(_) => {
                         for pa in adds.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pa);
+                            append(&mut hunk, pa);
                         }
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
                         // Simply print out the remove
-                        append(old_lines, new_lines, &mut hunk, &d);
+                        append(&mut hunk, d);
                         SequentialRemoves(hunk, adds)
                     },
                     DiffResult::Common(_) => {
                         for pa in adds.drain(..) {
-                            append(old_lines, new_lines, &mut hunk, &pa);
+                            append(&mut hunk, pa);
                         }
                         let mut commons = VecDeque::new();
                         // XXX: handle context = 0
@@ -325,7 +323,7 @@ fn display_diff_unified(out : &mut Write,
         // exactly at the end of the file.
         CollectingAdds (mut hunk, mut adds) => {
             for pa in adds.drain(..) {
-                append(old_lines, new_lines, &mut hunk, &pa);
+                append(&mut hunk, pa);
             }
             hunk
         },
@@ -337,19 +335,19 @@ fn display_diff_unified(out : &mut Write,
         // print them.
         CollectingCommonsCorked(mut hunk, mut commons) => {
             for pc in commons.drain(..) {
-                append(old_lines, new_lines, &mut hunk, &pc);
+                append(&mut hunk, pc);
             }
             hunk
         },
         // We may end up here if the last change is at the EOF.
         SequentialRemoves(mut hunk, mut adds) => {
             for pa in adds.drain(..) {
-                append(old_lines, new_lines, &mut hunk, &pa);
+                append(&mut hunk, pa);
             }
             hunk
         }
     };
-    dump_hunk(out, hunk.as_ref())?;
+    dump_hunk(out, old_lines, new_lines, hunk.as_ref())?;
     Ok (1)
 }
 
