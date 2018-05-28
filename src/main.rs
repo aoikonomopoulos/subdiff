@@ -130,6 +130,12 @@ fn append<'a>(hunk : &mut Option<Hunk>, d : DiffResult<String>) {
     }
 }
 
+fn consume<'a>(hunk : &mut Option<Hunk>, ds : &mut Iterator<Item=DiffResult<String>>) {
+    while let Some (d) = ds.next() {
+        append(hunk, d)
+    }
+}
+
 #[derive(Debug)]
 enum State {
     // Customary diff behavior is to present any removes before immediately
@@ -205,9 +211,7 @@ fn display_diff_unified(out : &mut Write,
                     },
                     DiffResult::Common(_) => {
                         // No adjacent removes, time to print out the adds
-                        for pa in adds.drain(..) {
-                            append(&mut hunk, pa);
-                        }
+                        consume(&mut hunk, &mut adds.drain(..));
                         let mut commons = VecDeque::new();
                         commons.push_back(d);
                         // We've just seen a change; this needs to be followed by
@@ -225,9 +229,7 @@ fn display_diff_unified(out : &mut Write,
                             dump_hunk(out, old_lines, new_lines, hunk.as_ref());
                             hunk = None
                         }
-                        for pc in commons.drain(..) {
-                            append(&mut hunk, pc);
-                        }
+                        consume(&mut hunk, &mut commons.drain(..));
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
@@ -235,9 +237,7 @@ fn display_diff_unified(out : &mut Write,
                             dump_hunk(out, old_lines, new_lines, hunk.as_ref());
                             hunk = None
                         }
-                        for pc in commons.drain(..) {
-                            append(&mut hunk, pc);
-                        }
+                        consume(&mut hunk, &mut commons.drain(..));
                         append(&mut hunk, d);
                         SequentialRemoves(hunk, vec![])
                     },
@@ -254,15 +254,11 @@ fn display_diff_unified(out : &mut Write,
                 match d {
                     // State change -> print collected common lines
                     DiffResult::Added(_) => {
-                        for pc in commons.drain(..) {
-                            append(&mut hunk, pc);
-                        }
+                        consume(&mut hunk, &mut commons.drain(..));
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
-                        for pc in commons.drain(..) {
-                            append(&mut hunk, pc);
-                        }
+                        consume(&mut hunk, &mut commons.drain(..));
                         append(&mut hunk, d);
                         SequentialRemoves(hunk, vec![])
                     },
@@ -272,9 +268,7 @@ fn display_diff_unified(out : &mut Write,
                             // We've accumulated $context common lines after
                             // a change; print out the hunk, then start collecting
                             // common lines to print _before_ the next change.
-                            for pc in commons.drain(..) {
-                                append(&mut hunk, pc);
-                            }
+                            consume(&mut hunk, &mut commons.drain(..));
                             CollectingCommonsTail(hunk, 0, VecDeque::new())
                         } else {
                             CollectingCommonsCorked(hunk, commons)
@@ -286,9 +280,7 @@ fn display_diff_unified(out : &mut Write,
                 match d {
                     // State change -> time to print out the pending adds
                     DiffResult::Added(_) => {
-                        for pa in adds.drain(..) {
-                            append(&mut hunk, pa);
-                        }
+                        consume(&mut hunk, &mut adds.drain(..));
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
@@ -297,9 +289,7 @@ fn display_diff_unified(out : &mut Write,
                         SequentialRemoves(hunk, adds)
                     },
                     DiffResult::Common(_) => {
-                        for pa in adds.drain(..) {
-                            append(&mut hunk, pa);
-                        }
+                        consume(&mut hunk, &mut adds.drain(..));
                         let mut commons = VecDeque::new();
                         // XXX: handle context = 0
                         commons.push_back(d);
@@ -316,9 +306,7 @@ fn display_diff_unified(out : &mut Write,
         // We might end up here if the last additions are
         // exactly at the end of the file.
         CollectingAdds (mut hunk, mut adds) => {
-            for pa in adds.drain(..) {
-                append(&mut hunk, pa);
-            }
+            consume(&mut hunk, &mut adds.drain(..));
             hunk
         },
         // Those are common lines we collected in anticipation of the
@@ -328,16 +316,12 @@ fn display_diff_unified(out : &mut Write,
         // the last change and the end of the file. We still need to
         // print them.
         CollectingCommonsCorked(mut hunk, mut commons) => {
-            for pc in commons.drain(..) {
-                append(&mut hunk, pc);
-            }
+            consume(&mut hunk, &mut commons.drain(..));
             hunk
         },
         // We may end up here if the last change is at the EOF.
         SequentialRemoves(mut hunk, mut adds) => {
-            for pa in adds.drain(..) {
-                append(&mut hunk, pa);
-            }
+            consume(&mut hunk, &mut adds.drain(..));
             hunk
         }
     };
