@@ -46,7 +46,17 @@ struct Hunk {
 }
 
 impl Hunk {
-    fn new(d : &DiffResult<String>, s : &str) -> Hunk {
+    // This is used when we have a change at the beginning of the file
+    fn initial() -> Hunk {
+        Hunk {
+            old_start : 0,
+            old_len : 0,
+            new_start : 0,
+            new_len : 0,
+            lines : vec![]
+        }
+    }
+    fn from_diff(d : &DiffResult<String>, s : &str) -> Hunk {
         use std::fmt::Write;
         let el = diff_elem(d);
         match (el.old_index, el.new_index) {
@@ -116,7 +126,7 @@ fn append<'a>(old_lines : &Vec<String>, new_lines : &Vec<String>,
     match hunk {
         None => {
             let out = old_lines[diff_elem(d).old_index.unwrap()].to_owned();
-            hunk.get_or_insert_with(|| Hunk::new(d, &out));
+            hunk.get_or_insert_with(|| Hunk::from_diff(d, &out));
         },
         Some (h) => h.append(old_lines, new_lines, d)
     }
