@@ -78,9 +78,8 @@ impl Hunk {
     }
     fn write(&self, old_lines : &Vec<String>, new_lines : &Vec<String>,
              out : &mut Write) -> io::Result<()> {
-        use std::fmt::Write;
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
-                 self.new_start + 1, self.new_len);
+                 self.new_start + 1, self.new_len)?;
         for d in &self.lines {
             match diff_offsets(d) {
                 (Some (o), Some (_)) => writeln!(out, " {}", &old_lines[o][..])?,
@@ -93,14 +92,14 @@ impl Hunk {
     }
     fn append(&mut self, d : DiffResult<String>) {
         match diff_offsets(&d){
-            (Some (o), Some (_)) => { // Common
+            (Some (_), Some (_)) => { // Common
                 self.old_len += 1;
                 self.new_len += 1;
             },
-            (Some (o), None) => { // Removal
+            (Some (_), None) => { // Removal
                 self.old_len += 1;
             },
-            (None, Some (n)) => { // Addition
+            (None, Some (_)) => { // Addition
                 self.new_len += 1;
             },
             _ => {
@@ -226,7 +225,7 @@ fn display_diff_unified(out : &mut Write,
                     // preceeded by a header
                     DiffResult::Added(_) => {
                         if seen > context {
-                            dump_hunk(out, old_lines, new_lines, hunk.as_ref());
+                            dump_hunk(out, old_lines, new_lines, hunk.as_ref())?;
                             hunk = None
                         }
                         consume(&mut hunk, &mut commons.drain(..));
@@ -234,7 +233,7 @@ fn display_diff_unified(out : &mut Write,
                     },
                     DiffResult::Removed(_) => {
                         if seen > context {
-                            dump_hunk(out, old_lines, new_lines, hunk.as_ref());
+                            dump_hunk(out, old_lines, new_lines, hunk.as_ref())?;
                             hunk = None
                         }
                         consume(&mut hunk, &mut commons.drain(..));
