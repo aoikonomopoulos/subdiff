@@ -170,13 +170,6 @@ fn display_diff_unified(out : &mut Write,
     let mut state = match diff_results.next() {
         None => panic!("No differences at all, should have returned earlier"),
         Some (d) => {
-            let mut h = Hunk {
-                old_start : 0,
-                old_len : 0,
-                new_start : 0,
-                new_len : 0,
-                lines : vec![]
-            };
             match d {
                 DiffResult::Common(_) => {
                     let mut commons = VecDeque::new();
@@ -184,9 +177,10 @@ fn display_diff_unified(out : &mut Write,
                     CollectingCommonsTail(None, 1, commons)
                 },
                 DiffResult::Added(_) => {
-                    CollectingAdds(Some (h), vec![d])
+                    CollectingAdds(Some (Hunk::initial()), vec![d])
                 },
                 DiffResult::Removed(_) => {
+                    let mut h = Hunk::initial();
                     h.append(d);
                     SequentialRemoves(Some (h), vec![])
                 },
