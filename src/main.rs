@@ -406,16 +406,6 @@ mod tests {
         eprintln!("diff's output");
         use std::io::stderr;
         stderr().write(diff_output);
-        // let mut diff_output : Vec<u8> = vec![];
-        // for line in diff_output_before.lines() {
-        //     let line = line.unwrap();
-        //     if line.starts_with("@@") && line.ends_with("@@") {
-        //         diff_output.extend("--".bytes())
-        //     } else {
-        //         diff_output.extend(line.bytes())
-        //     }
-        //     diff_output.extend("\n".bytes())
-        // }
         let mut our_output : Vec<u8> = vec![];
         diff_files(&mut our_output, &old_p, &new_p).unwrap();
         if our_output != diff_output {
