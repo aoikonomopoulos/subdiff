@@ -4,15 +4,17 @@ extern crate lcs_diff;
 extern crate itertools;
 #[cfg(test)]
 extern crate temporary;
+extern crate clap;
 
 use self::lcs_diff::*;
-use std::env;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
 use std::process::exit;
+use std::str::FromStr;
 use std::collections::VecDeque;
+use clap::{App, Arg};
 
 fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
     let f = File::open(p)?;
@@ -177,6 +179,7 @@ enum State {
 }
 
 fn display_diff_unified(out : &mut Write,
+                        context : usize,
                         old_lines : &[Vec<u8>],
                         new_lines : &[Vec<u8>],
                         diff : Vec<DiffResult<Vec<u8>>>) -> io::Result<i32> {
@@ -184,7 +187,6 @@ fn display_diff_unified(out : &mut Write,
     if !exist_differences(&diff) {
         return Ok (0); // Exit w/o producing any output
     }
-    let context = 3;
 
     let mut diff_results = diff.into_iter();
     // If the first diff result is an add or a remove, we need
@@ -345,12 +347,13 @@ fn display_diff_unified(out : &mut Write,
     Ok (1)
 }
 
-fn diff_files(out : &mut Write, old : &Path, new : &Path) -> io::Result<i32> {
+fn diff_files(out : &mut Write, context : usize,
+              old : &Path, new : &Path) -> io::Result<i32> {
     let old_lines = read_lines(old)?;
     let new_lines = read_lines(new)?;
 
     let diff : Vec<DiffResult<Vec<u8>>> = lcs_diff::diff(&old_lines, &new_lines);
-    display_diff_unified(out, &old_lines, &new_lines, diff)
+    display_diff_unified(out, context, &old_lines, &new_lines, diff)
 }
 
 #[cfg(test)]
@@ -396,7 +399,7 @@ mod tests {
         let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
         let diff_output = &outp.stdout[pos..];
         let mut our_output : Vec<u8> = vec![];
-        diff_files(&mut our_output, &old_p, &new_p).unwrap();
+        diff_files(&mut our_output, 3, &old_p, &new_p).unwrap();
         if our_output != diff_output {
             eprintln!("outputs differ! ours:");
             io::stderr().write(&our_output).unwrap();
@@ -423,11 +426,39 @@ mod tests {
     }
 }
 
+fn parse_usize(s : &str) -> usize {
+    match usize::from_str(s) {
+        Ok (u) => u,
+        Err (e) => {
+            eprintln!("Error parsing '{}' as usize: {}", s, e);
+            exit(2)
+        }
+    }
+}
+
 fn main() {
-    let args : Vec<String> = env::args().collect();
+    let matches = App::new("subdiff")
+        .version("0.1")
+        .arg(Arg::with_name("context")
+             .short("c")
+             .long("context")
+             .help("Number of displayed context lines")
+             .default_value("3"))
+        .arg(Arg::with_name("old")
+             .required(true)
+             .index(1)
+             .help("OLD file"))
+        .arg(Arg::with_name("new")
+             .required(true)
+             .index(2)
+             .help("NEW file"))
+        .get_matches();
+
+    let context = parse_usize(matches.value_of("context").unwrap());
     let ecode = match diff_files(&mut io::stdout(),
-                                 Path::new(&args[1]),
-                                 Path::new(&args[2])) {
+                                 context,
+                                 Path::new(matches.value_of("old").unwrap()),
+                                 Path::new(matches.value_of("new").unwrap())) {
         Ok (ecode) => ecode,
         Err (err) => {
             eprintln!("Error comparing files: {}", err);
