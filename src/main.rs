@@ -76,7 +76,7 @@ impl Hunk {
             },
         }
     }
-    fn write(&self, old_lines : &Vec<String>, new_lines : &Vec<String>,
+    fn write(&self, old_lines : &[String], new_lines : &[String],
              out : &mut Write) -> io::Result<()> {
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len)?;
@@ -111,8 +111,8 @@ impl Hunk {
 }
 
 fn dump_hunk(out : &mut Write,
-             old_lines : &Vec<String>,
-             new_lines : &Vec<String>, hunk : Option<&Hunk>) -> io::Result<()> {
+             old_lines : &[String],
+             new_lines : &[String], hunk : Option<&Hunk>) -> io::Result<()> {
     eprintln!("In dump_hunk");
     match hunk {
         None => Ok (()),
@@ -122,15 +122,15 @@ fn dump_hunk(out : &mut Write,
     }
 }
 
-fn append<'a>(hunk : &mut Option<Hunk>, d : DiffResult<String>) {
+fn append(hunk : &mut Option<Hunk>, d : DiffResult<String>) {
     match hunk {
         None => {hunk.get_or_insert_with(|| Hunk::from_diff(d));},
         Some (h) => h.append(d),
     }
 }
 
-fn consume<'a>(hunk : &mut Option<Hunk>, ds : &mut Iterator<Item=DiffResult<String>>) {
-    while let Some (d) = ds.next() {
+fn consume(hunk : &mut Option<Hunk>, ds : &mut Iterator<Item=DiffResult<String>>) {
+    for d in ds {
         append(hunk, d)
     }
 }
@@ -160,8 +160,8 @@ enum State {
 }
 
 fn display_diff_unified(out : &mut Write,
-                        old_lines : &Vec<String>,
-                        new_lines : &Vec<String>,
+                        old_lines : &[String],
+                        new_lines : &[String],
                         diff : Vec<DiffResult<String>>) -> io::Result<i32> {
     use State::*;
     if !exist_differences(&diff) {
