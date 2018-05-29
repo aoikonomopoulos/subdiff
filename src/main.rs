@@ -5,6 +5,7 @@ extern crate itertools;
 #[cfg(test)]
 extern crate temporary;
 extern crate clap;
+extern crate regex;
 
 use self::lcs_diff::*;
 use std::io;
@@ -15,6 +16,7 @@ use std::process::exit;
 use std::str::FromStr;
 use std::collections::VecDeque;
 use clap::{App, Arg};
+use regex::bytes::Regex;
 
 fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
     let f = File::open(p)?;
@@ -347,12 +349,48 @@ fn display_diff_unified(out : &mut Write,
     Ok (1)
 }
 
-fn diff_files(out : &mut Write, context : usize,
+fn extract_re_matches(re : &mut Regex, line : &[u8]) -> Vec<u8> {
+    let mut ret = vec![];
+    match re.captures(line) {
+        Some (caps) => {
+            for i in 1..caps.len() {
+                let m = &caps[i];
+                unsafe {
+                    eprintln!("Got match: `{:?}`", String::from_utf8_unchecked(m.to_vec()))
+                };
+                ret.write(m).unwrap();
+            }
+        },
+        None => {
+            ret.write(line).unwrap();
+        }
+    }
+    ret
+}
+
+fn pick_lines(mut re : &mut Regex, lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
+    lines.iter().map(|l| extract_re_matches(&mut re, l)).collect()
+}
+
+fn diff_files(out : &mut Write, context : usize, re : Option<&str>,
               old : &Path, new : &Path) -> io::Result<i32> {
     let old_lines = read_lines(old)?;
     let new_lines = read_lines(new)?;
 
-    let diff : Vec<DiffResult<Vec<u8>>> = lcs_diff::diff(&old_lines, &new_lines);
+    let diff : Vec<DiffResult<Vec<u8>>> = match re {
+        Some (re) => {
+            let mut re = match Regex::new(re) {
+                Ok (re) => re,
+                Err (err) => {
+                    eprintln!("Could not compile regular expresssion `{}`: {}",
+                              "XXX", err);
+                    exit(2)
+                }
+            };
+            lcs_diff::diff(&pick_lines(&mut re, &old_lines), &pick_lines(&mut re, &new_lines))
+        },
+        None => lcs_diff::diff(&old_lines, &new_lines)
+    };
     display_diff_unified(out, context, &old_lines, &new_lines, diff)
 }
 
@@ -399,7 +437,7 @@ mod tests {
         let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
         let diff_output = &outp.stdout[pos..];
         let mut our_output : Vec<u8> = vec![];
-        diff_files(&mut our_output, 3, &old_p, &new_p).unwrap();
+        diff_files(&mut our_output, 3, None, &old_p, &new_p).unwrap();
         if our_output != diff_output {
             eprintln!("outputs differ! ours:");
             io::stderr().write(&our_output).unwrap();
@@ -452,11 +490,19 @@ fn main() {
              .required(true)
              .index(2)
              .help("NEW file"))
+        .arg(Arg::with_name("common_re")
+             .required(false)
+             .short("r")
+             .long("regex")
+             .takes_value(true)
+             .value_name("RE")
+             .help("Compare the parts of lines matched by this regexp"))
         .get_matches();
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let ecode = match diff_files(&mut io::stdout(),
                                  context,
+                                 matches.value_of("common_re"),
                                  Path::new(matches.value_of("old").unwrap()),
                                  Path::new(matches.value_of("new").unwrap())) {
         Ok (ecode) => ecode,
