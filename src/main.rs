@@ -170,7 +170,7 @@ fn display_diff_unified(out : &mut Write,
     let context = 3;
 
     let mut diff_results = diff.into_iter();
-    // In case the first diff result is an add or a remove, we need
+    // If the first diff result is an add or a remove, we need
     // to manually note down the start line in the hunk
     let mut state = match diff_results.next() {
         None => panic!("No differences at all, should have returned earlier"),
