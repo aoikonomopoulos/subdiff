@@ -14,13 +14,21 @@ use std::path::Path;
 use std::process::exit;
 use std::collections::VecDeque;
 
-fn read_lines(p : &Path) -> io::Result<Vec<String>> {
+fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
     let f = File::open(p)?;
-    let f = io::BufReader::new(f);
-    f.lines().collect::<io::Result<Vec<String>>>()
+    let mut f = io::BufReader::new(f);
+    let mut ret = vec![];
+    loop {
+        let mut buf = vec![];
+        let len = f.read_until(b'\n', &mut buf)?;
+        if len == 0 {
+            return Ok (ret)
+        }
+        ret.push(buf)
+    }
 }
 
-fn exist_differences(results : &[DiffResult<String>]) -> bool {
+fn exist_differences(results : &[DiffResult<Vec<u8>>]) -> bool {
     results.iter().any(|r|
                        match r {
                            DiffResult::Common (_) => false,
@@ -46,7 +54,7 @@ struct Hunk {
     old_len : usize,
     new_start : usize,
     new_len : usize,
-    lines : Vec<DiffResult<String>>,
+    lines : Vec<DiffResult<Vec<u8>>>,
 }
 
 impl Hunk {
@@ -60,7 +68,7 @@ impl Hunk {
             lines : vec![]
         }
     }
-    fn from_diff(d : DiffResult<String>) -> Hunk {
+    fn from_diff(d : DiffResult<Vec<u8>>) -> Hunk {
         match diff_offsets(&d) {
             (Some (o), Some (n)) => {
                 Hunk {
@@ -76,21 +84,30 @@ impl Hunk {
             },
         }
     }
-    fn write(&self, old_lines : &[String], new_lines : &[String],
+    fn write(&self, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
              out : &mut Write) -> io::Result<()> {
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len)?;
         for d in &self.lines {
             match diff_offsets(d) {
-                (Some (o), Some (_)) => writeln!(out, " {}", &old_lines[o][..])?,
-                (Some (o), None) => writeln!(out, "-{}", &old_lines[o][..])?,
-                (None, Some (n)) => writeln!(out, "+{}", &new_lines[n][..])?,
+                (Some (o), Some (_)) => {
+                    out.write(b" ")?;
+                    out.write(&old_lines[o][..])?;
+                },
+                (Some (o), None) => {
+                    out.write(b"-")?;
+                    out.write(&old_lines[o][..])?;
+                },
+                (None, Some (n)) => {
+                    out.write(b"+")?;
+                    out.write(&new_lines[n][..])?;
+                },
                 _ => panic!("Can't print DiffElement with neither side"),
             }
         };
         Ok (())
     }
-    fn append(&mut self, d : DiffResult<String>) {
+    fn append(&mut self, d : DiffResult<Vec<u8>>) {
         match diff_offsets(&d){
             (Some (_), Some (_)) => { // Common
                 self.old_len += 1;
@@ -111,8 +128,8 @@ impl Hunk {
 }
 
 fn dump_hunk(out : &mut Write,
-             old_lines : &[String],
-             new_lines : &[String], hunk : Option<&Hunk>) -> io::Result<()> {
+             old_lines : &[Vec<u8>],
+             new_lines : &[Vec<u8>], hunk : Option<&Hunk>) -> io::Result<()> {
     eprintln!("In dump_hunk");
     match hunk {
         None => Ok (()),
@@ -122,14 +139,14 @@ fn dump_hunk(out : &mut Write,
     }
 }
 
-fn append(hunk : &mut Option<Hunk>, d : DiffResult<String>) {
+fn append(hunk : &mut Option<Hunk>, d : DiffResult<Vec<u8>>) {
     match hunk {
         None => {hunk.get_or_insert_with(|| Hunk::from_diff(d));},
         Some (h) => h.append(d),
     }
 }
 
-fn consume(hunk : &mut Option<Hunk>, ds : &mut Iterator<Item=DiffResult<String>>) {
+fn consume(hunk : &mut Option<Hunk>, ds : &mut Iterator<Item=DiffResult<Vec<u8>>>) {
     for d in ds {
         append(hunk, d)
     }
@@ -141,7 +158,7 @@ enum State {
     // following adds, however lcs_diff returns adds before removes. So we
     // set aside any consecutive adds and print them as soon as it's clear
     // we've observed (and emitted) all immediately following removes.
-    CollectingAdds(Option<Hunk>, Vec<DiffResult<String>>),
+    CollectingAdds(Option<Hunk>, Vec<DiffResult<Vec<u8>>>),
 
     // Hold on to the last N common lines we've seen, dump them
     // as the preceeding context if a new change (addition/removal)
@@ -149,20 +166,20 @@ enum State {
     // We also need to prepend a separator if there were context
     // lines we had to drop, so our state also includes the number
     // of observed common lines while in this state.
-    CollectingCommonsTail(Option<Hunk>, usize, VecDeque<DiffResult<String>>),
+    CollectingCommonsTail(Option<Hunk>, usize, VecDeque<DiffResult<Vec<u8>>>),
 
     // Accumulate up to $context lines, emit them, then switch
     // to CollectingCommonsTail.
-    CollectingCommonsCorked(Option<Hunk>, VecDeque<DiffResult<String>>),
+    CollectingCommonsCorked(Option<Hunk>, VecDeque<DiffResult<Vec<u8>>>),
 
     // Emit seen remove, while holding on to any pending adds (see above)
-    SequentialRemoves(Option<Hunk>, Vec<DiffResult<String>>),
+    SequentialRemoves(Option<Hunk>, Vec<DiffResult<Vec<u8>>>),
 }
 
 fn display_diff_unified(out : &mut Write,
-                        old_lines : &[String],
-                        new_lines : &[String],
-                        diff : Vec<DiffResult<String>>) -> io::Result<i32> {
+                        old_lines : &[Vec<u8>],
+                        new_lines : &[Vec<u8>],
+                        diff : Vec<DiffResult<Vec<u8>>>) -> io::Result<i32> {
     use State::*;
     if !exist_differences(&diff) {
         return Ok (0); // Exit w/o producing any output
@@ -332,7 +349,7 @@ fn diff_files(out : &mut Write, old : &Path, new : &Path) -> io::Result<i32> {
     let old_lines = read_lines(old)?;
     let new_lines = read_lines(new)?;
 
-    let diff : Vec<DiffResult<String>> = lcs_diff::diff(&old_lines, &new_lines);
+    let diff : Vec<DiffResult<Vec<u8>>> = lcs_diff::diff(&old_lines, &new_lines);
     display_diff_unified(out, &old_lines, &new_lines, diff)
 }
 
