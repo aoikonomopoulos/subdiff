@@ -94,29 +94,6 @@ impl<T: PartialEq + Clone> Hunk<T> {
             },
         }
     }
-    // fn write(&self, old_lines : &[T], new_lines : &[T],
-    //          out : &mut Write) -> io::Result<()> {
-    //     writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
-    //              self.new_start + 1, self.new_len)?;
-    //     for d in &self.lines {
-    //         match diff_offsets(d) {
-    //             (Some (o), Some (_)) => {
-    //                 out.write(b" ")?;
-    //                 out.write(&old_lines[o][..])?;
-    //             },
-    //             (Some (o), None) => {
-    //                 out.write(b"-")?;
-    //                 out.write(&old_lines[o][..])?;
-    //             },
-    //             (None, Some (n)) => {
-    //                 out.write(b"+")?;
-    //                 out.write(&new_lines[n][..])?;
-    //             },
-    //             _ => panic!("Can't print DiffElement with neither side"),
-    //         }
-    //     };
-    //     Ok (())
-    // }
     fn append(&mut self, d : DiffResult<T>) {
         match diff_offsets(&d){
             (Some (_), Some (_)) => { // Common
