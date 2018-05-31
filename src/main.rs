@@ -11,12 +11,18 @@ use self::lcs_diff::*;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
+use std::fmt::Debug;
 use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
 use std::collections::VecDeque;
 use clap::{App, Arg};
 use regex::bytes::Regex;
+
+trait DisplayableHunk where Self::DiffItem : PartialEq + Clone + Debug + Sized {
+    type DiffItem;
+    fn do_write(&self, &[Self::DiffItem], &[Self::DiffItem], &mut Write) -> io::Result<()>;
+}
 
 fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
     let f = File::open(p)?;
@@ -32,7 +38,7 @@ fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
     }
 }
 
-fn exist_differences(results : &[DiffResult<Vec<u8>>]) -> bool {
+fn exist_differences<T : PartialEq + Clone>(results : &[DiffResult<T>]) -> bool {
     results.iter().any(|r|
                        match r {
                            DiffResult::Common (_) => false,
@@ -53,17 +59,17 @@ fn diff_offsets<T : PartialEq + Clone>(d : &DiffResult<T>) -> (Option<usize>, Op
 // only print it out when we know the current hunk has ended. This saves
 // the info we need in order to display the hunk header and related lines.
 #[derive(Debug)]
-struct Hunk {
+struct Hunk<T : PartialEq + Clone> {
     old_start : usize,
     old_len : usize,
     new_start : usize,
     new_len : usize,
-    lines : Vec<DiffResult<Vec<u8>>>,
+    lines : Vec<DiffResult<T>>,
 }
 
-impl Hunk {
+impl<T: PartialEq + Clone> Hunk<T> {
     // This is used when we have a change at the beginning of the file
-    fn initial() -> Hunk {
+    fn initial() -> Hunk<T> {
         Hunk {
             old_start : 0,
             old_len : 0,
@@ -72,7 +78,7 @@ impl Hunk {
             lines : vec![]
         }
     }
-    fn from_diff(d : DiffResult<Vec<u8>>) -> Hunk {
+    fn from_diff(d : DiffResult<T>) -> Hunk<T> {
         match diff_offsets(&d) {
             (Some (o), Some (n)) => {
                 Hunk {
@@ -88,8 +94,53 @@ impl Hunk {
             },
         }
     }
-    fn write(&self, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
-             out : &mut Write) -> io::Result<()> {
+    // fn write(&self, old_lines : &[T], new_lines : &[T],
+    //          out : &mut Write) -> io::Result<()> {
+    //     writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
+    //              self.new_start + 1, self.new_len)?;
+    //     for d in &self.lines {
+    //         match diff_offsets(d) {
+    //             (Some (o), Some (_)) => {
+    //                 out.write(b" ")?;
+    //                 out.write(&old_lines[o][..])?;
+    //             },
+    //             (Some (o), None) => {
+    //                 out.write(b"-")?;
+    //                 out.write(&old_lines[o][..])?;
+    //             },
+    //             (None, Some (n)) => {
+    //                 out.write(b"+")?;
+    //                 out.write(&new_lines[n][..])?;
+    //             },
+    //             _ => panic!("Can't print DiffElement with neither side"),
+    //         }
+    //     };
+    //     Ok (())
+    // }
+    fn append(&mut self, d : DiffResult<T>) {
+        match diff_offsets(&d){
+            (Some (_), Some (_)) => { // Common
+                self.old_len += 1;
+                self.new_len += 1;
+            },
+            (Some (_), None) => { // Removal
+                self.old_len += 1;
+            },
+            (None, Some (_)) => { // Addition
+                self.new_len += 1;
+            },
+            _ => {
+                panic!("DiffElement with neither side")
+            },
+        };
+        self.lines.push(d)
+    }
+}
+
+impl DisplayableHunk for Hunk<Vec<u8>> {
+    type DiffItem = Vec<u8>;
+    fn do_write(&self, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
+                out : &mut Write) -> io::Result<()> {
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len)?;
         for d in &self.lines {
@@ -111,58 +162,43 @@ impl Hunk {
         };
         Ok (())
     }
-    fn append(&mut self, d : DiffResult<Vec<u8>>) {
-        match diff_offsets(&d){
-            (Some (_), Some (_)) => { // Common
-                self.old_len += 1;
-                self.new_len += 1;
-            },
-            (Some (_), None) => { // Removal
-                self.old_len += 1;
-            },
-            (None, Some (_)) => { // Addition
-                self.new_len += 1;
-            },
-            _ => {
-                panic!("DiffElement with neither side")
-            },
-        };
-        self.lines.push(d)
-    }
 }
 
-fn dump_hunk(out : &mut Write,
-             old_lines : &[Vec<u8>],
-             new_lines : &[Vec<u8>], hunk : Option<&Hunk>) -> io::Result<()> {
-    eprintln!("In dump_hunk");
+fn dump_hunk<MyHunk : DisplayableHunk>(out : &mut Write,
+                     old_lines : &[<MyHunk as DisplayableHunk>::DiffItem],
+                     new_lines : &[<MyHunk as DisplayableHunk>::DiffItem],
+                hunk : Option<&MyHunk>) -> io::Result<()>
+where
+{
     match hunk {
         None => Ok (()),
         Some (hunk) => {
-            hunk.write(old_lines, new_lines, out)
+            hunk.do_write(old_lines, new_lines, out)
         }
     }
 }
 
-fn append(hunk : &mut Option<Hunk>, d : DiffResult<Vec<u8>>) {
+fn append<T: PartialEq + Clone>(hunk : &mut Option<Hunk<T>>, d : DiffResult<T>) {
     match hunk {
         None => {hunk.get_or_insert_with(|| Hunk::from_diff(d));},
         Some (h) => h.append(d),
     }
 }
 
-fn consume(hunk : &mut Option<Hunk>, ds : &mut Iterator<Item=DiffResult<Vec<u8>>>) {
+fn consume<T : PartialEq + Clone>(hunk : &mut Option<Hunk<T>>,
+                                  ds : &mut Iterator<Item=DiffResult<T>>) {
     for d in ds {
         append(hunk, d)
     }
 }
 
 #[derive(Debug)]
-enum State {
+enum State<T : PartialEq + Clone + Debug> {
     // Customary diff behavior is to present any removes before immediately
     // following adds, however lcs_diff returns adds before removes. So we
     // set aside any consecutive adds and print them as soon as it's clear
     // we've observed (and emitted) all immediately following removes.
-    CollectingAdds(Option<Hunk>, Vec<DiffResult<Vec<u8>>>),
+    CollectingAdds(Option<Hunk<T>>, Vec<DiffResult<T>>),
 
     // Hold on to the last N common lines we've seen, dump them
     // as the preceeding context if a new change (addition/removal)
@@ -170,26 +206,38 @@ enum State {
     // We also need to prepend a separator if there were context
     // lines we had to drop, so our state also includes the number
     // of observed common lines while in this state.
-    CollectingCommonsTail(Option<Hunk>, usize, VecDeque<DiffResult<Vec<u8>>>),
+    CollectingCommonsTail(Option<Hunk<T>>, usize, VecDeque<DiffResult<T>>),
 
     // Accumulate up to $context lines, emit them, then switch
     // to CollectingCommonsTail.
-    CollectingCommonsCorked(Option<Hunk>, VecDeque<DiffResult<Vec<u8>>>),
+    CollectingCommonsCorked(Option<Hunk<T>>, VecDeque<DiffResult<T>>),
 
     // Emit seen remove, while holding on to any pending adds (see above)
-    SequentialRemoves(Option<Hunk>, Vec<DiffResult<Vec<u8>>>),
+    SequentialRemoves(Option<Hunk<T>>, Vec<DiffResult<T>>),
 }
 
-fn display_diff_unified(out : &mut Write,
+fn display_diff_unified<T>(
+    out : &mut Write,
                         context : usize,
-                        old_lines : &[Vec<u8>],
-                        new_lines : &[Vec<u8>],
-                        diff : Vec<DiffResult<Vec<u8>>>) -> io::Result<i32> {
+                        old_lines : &[T],
+                        new_lines : &[T],
+    diff : Vec<DiffResult<T>>) -> io::Result<i32>
+where T : PartialEq + Clone + Debug,
+Hunk<T> : DisplayableHunk<DiffItem=T>
+{
     use State::*;
     if !exist_differences(&diff) {
         return Ok (0); // Exit w/o producing any output
     }
 
+    let mut dump_hunk = |hunk : Option<&Hunk<T>>| {
+        match hunk {
+            None => Ok (()),
+            Some (hunk) => {
+                hunk.do_write(old_lines , new_lines, out)
+            }
+        }
+    };
     let mut diff_results = diff.into_iter();
     // If the first diff result is an add or a remove, we need
     // to manually note down the start line in the hunk
@@ -203,7 +251,7 @@ fn display_diff_unified(out : &mut Write,
                     CollectingCommonsTail(None, 1, commons)
                 },
                 DiffResult::Added(_) => {
-                    CollectingAdds(Some (Hunk::initial()), vec![d])
+                    CollectingAdds(Some (<Hunk<T>>::initial()), vec![d])
                 },
                 DiffResult::Removed(_) => {
                     let mut h = Hunk::initial();
@@ -246,7 +294,7 @@ fn display_diff_unified(out : &mut Write,
                     // preceeded by a header
                     DiffResult::Added(_) => {
                         if seen > context {
-                            dump_hunk(out, old_lines, new_lines, hunk.as_ref())?;
+                            dump_hunk(hunk.as_ref())?;
                             hunk = None
                         }
                         consume(&mut hunk, &mut commons.drain(..));
@@ -254,7 +302,7 @@ fn display_diff_unified(out : &mut Write,
                     },
                     DiffResult::Removed(_) => {
                         if seen > context {
-                            dump_hunk(out, old_lines, new_lines, hunk.as_ref())?;
+                            dump_hunk(hunk.as_ref())?;
                             hunk = None
                         }
                         consume(&mut hunk, &mut commons.drain(..));
@@ -345,7 +393,7 @@ fn display_diff_unified(out : &mut Write,
             hunk
         }
     };
-    dump_hunk(out, old_lines, new_lines, hunk.as_ref())?;
+    dump_hunk(hunk.as_ref())?;
     Ok (1)
 }
 
@@ -391,7 +439,7 @@ fn diff_files(out : &mut Write, context : usize, re : Option<&str>,
         },
         None => lcs_diff::diff(&old_lines, &new_lines)
     };
-    display_diff_unified(out, context, &old_lines, &new_lines, diff)
+    display_diff_unified::<Vec<u8>>(out, context, &old_lines, &new_lines, diff)
 }
 
 #[cfg(test)]
