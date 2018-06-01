@@ -114,6 +114,91 @@ impl<T: PartialEq + Clone> Hunk<T> {
     }
 }
 
+enum WordDiffState {
+    ShowingCommon,
+    ShowingRemoves,
+    ShowingAdds,
+}
+
+fn extend(line : &mut Vec<u8>, s : &str) {
+    line.extend(s.bytes())
+}
+
+impl DisplayableHunk for Hunk<u8> {
+    type DiffItem = u8;
+    fn do_write(&self, _ : &[u8], _ : &[u8], out : &mut Write) -> io::Result<()> {
+        use WordDiffState::*;
+        let mut line = vec![];
+        let mut state = ShowingCommon;
+        for d in &self.lines {
+            state = match state {
+                ShowingCommon => {
+                    match d {
+                        DiffResult::Common (el) => {
+                            line.push(el.data);
+                            ShowingCommon
+                        },
+                        DiffResult::Added (el) => {
+                            extend(&mut line, "+{");
+                            line.push(el.data);
+                            ShowingAdds
+                        },
+                        DiffResult::Removed(el) => {
+                            extend(&mut line, "-{");
+                            line.push(el.data);
+                            ShowingRemoves
+                        }
+                    }
+                },
+                ShowingAdds => {
+                    match d {
+                        DiffResult::Common (el) => {
+                            line.push(b'}');
+                            line.push(el.data);
+                            ShowingCommon
+                        },
+                        DiffResult::Added (el) => {
+                            line.push(el.data);
+                            ShowingAdds
+                        },
+                        DiffResult::Removed (el) => {
+                            line.push(b'}');
+                            extend(&mut line, "-{");
+                            line.push(el.data);
+                            ShowingRemoves
+                        },
+                    }
+                },
+                ShowingRemoves => {
+                    match d {
+                        DiffResult::Common (el) => {
+                            line.push(b'}');
+                            line.push(el.data);
+                            ShowingCommon
+                        },
+                        DiffResult::Added (el) => {
+                            line.push(b'}');
+                            extend(&mut line, "+{");
+                            line.push(el.data);
+                            ShowingAdds
+                        },
+                        DiffResult::Removed (el) => {
+                            line.push(el.data);
+                            ShowingRemoves
+                        }
+                    }
+                },
+            }
+        }
+        match state {
+            ShowingAdds | ShowingRemoves => line.push(b'}'),
+            ShowingCommon => (),
+        };
+        out.write(&line)?;
+        Ok (())
+    }
+}
+
 impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
     fn do_write(&self, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
@@ -122,9 +207,16 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                  self.new_start + 1, self.new_len)?;
         for d in &self.lines {
             match diff_offsets(d) {
-                (Some (o), Some (_)) => {
+                (Some (o), Some (n)) => {
                     out.write(b" ")?;
-                    out.write(&old_lines[o][..])?;
+                    let diff = lcs_diff::diff::<u8>(&old_lines[o][..], &new_lines[n][..]);
+                    if !exist_differences(&diff) {
+                        out.write(&old_lines[o][..])?;
+                    } else {
+                        display_diff_unified::<u8>(out, 1000,
+                                                   &old_lines[o][..],
+                                                   &new_lines[n][..], diff)?;
+                    }
                 },
                 (Some (o), None) => {
                     out.write(b"-")?;
@@ -203,10 +295,6 @@ where T : PartialEq + Clone + Debug,
 Hunk<T> : DisplayableHunk<DiffItem=T>
 {
     use State::*;
-    if !exist_differences(&diff) {
-        return Ok (0); // Exit w/o producing any output
-    }
-
     let mut dump_hunk = |hunk : Option<&Hunk<T>>| {
         match hunk {
             None => Ok (()),
@@ -219,7 +307,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
     // If the first diff result is an add or a remove, we need
     // to manually note down the start line in the hunk
     let mut state = match diff_results.next() {
-        None => panic!("No differences at all, should have returned earlier"),
+        None => panic!("No differences at all, shouldn't have been called"),
         Some (d) => {
             match d {
                 DiffResult::Common(_) => {
@@ -416,6 +504,10 @@ fn diff_files(out : &mut Write, context : usize, re : Option<&str>,
         },
         None => lcs_diff::diff(&old_lines, &new_lines)
     };
+    if !exist_differences(&diff) {
+        return Ok (0); // Exit w/o producing any output
+    }
+
     display_diff_unified::<Vec<u8>>(out, context, &old_lines, &new_lines, diff)
 }
 
@@ -486,6 +578,48 @@ mod tests {
             cnt += 1
         }
         tmpdir.remove().unwrap()
+    }
+
+    fn do_wdiff(s1 : &str, s2 : &str, out : &mut Write) {
+        let diff = lcs_diff::diff(s1.as_bytes(), s2.as_bytes());
+        if exist_differences(&diff) {
+            display_diff_unified(out, 1000, s1.as_bytes(), s2.as_bytes(), diff);
+        } else {
+            out.write(s1.as_bytes());
+        }
+    }
+
+    fn check_wdiff(s1 : &str, s2 : &str, exp : &str) {
+        let mut out : Vec<u8> = vec![];
+        do_wdiff(s1, s2, &mut out);
+        if &out[..] != exp.as_bytes() {
+            eprintln!("old: `{}`", s1);
+            eprintln!("new: `{}`", s2);
+            eprintln!("Expected: `{}`", exp);
+            io::stderr().write(b"Got: `").unwrap();
+            io::stderr().write(&out).unwrap();
+            eprintln!("`");
+            panic!("Incorrect wdiff output");
+        }
+    }
+
+    #[test]
+    fn test_wdiff() {
+        check_wdiff("", "", "");
+        check_wdiff("", "a", "+{a}");
+        check_wdiff("a", "", "-{a}");
+        check_wdiff("a", "a", "a");
+
+        check_wdiff("ab", "ab", "ab");
+        check_wdiff("ac", "abc", "a+{b}c");
+        check_wdiff("abc", "ac", "a-{b}c");
+
+        check_wdiff("ad", "abcd", "a+{bc}d");
+        check_wdiff("abcd", "ad", "a-{bc}d");
+        check_wdiff("ac", "abcd", "a+{b}c+{d}");
+        check_wdiff("acd", "abc", "a+{b}c-{d}");
+        check_wdiff("abc", "adc", "a-{b}+{d}c");
+        check_wdiff("abcd", "aefd", "a-{bc}+{ef}d");
     }
 }
 
