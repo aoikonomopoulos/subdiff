@@ -94,7 +94,7 @@ struct Hunk<T : PartialEq + Clone> {
     old_len : usize,
     new_start : usize,
     new_len : usize,
-    lines : Vec<DiffResult<T>>,
+    items : Vec<DiffResult<T>>,
 }
 
 impl<T: PartialEq + Clone> Hunk<T> {
@@ -105,7 +105,7 @@ impl<T: PartialEq + Clone> Hunk<T> {
             old_len : 0,
             new_start : 0,
             new_len : 0,
-            lines : vec![]
+            items : vec![]
         }
     }
     fn from_diff(d : DiffResult<T>) -> Hunk<T> {
@@ -116,7 +116,7 @@ impl<T: PartialEq + Clone> Hunk<T> {
                     old_len : 1,
                     new_start : n,
                     new_len : 1,
-                    lines : vec![d],
+                    items : vec![d],
                 }
             },
             _ => {
@@ -140,7 +140,7 @@ impl<T: PartialEq + Clone> Hunk<T> {
                 panic!("DiffElement with neither side")
             },
         };
-        self.lines.push(d)
+        self.items.push(d)
     }
 }
 
@@ -223,7 +223,7 @@ fn intra_line_write_cc(hunk : &Hunk<u8>, _ : &Conf, _ : &[u8], _ : &[u8], out : 
     let mut cc = None;
     let mut nadded = 0;
     let mut nremoved = 0;
-    for d in &hunk.lines {
+    for d in &hunk.items {
         let ch = match d {
             DiffResult::Common (_) => None,
             DiffResult::Added (el) => {
@@ -245,7 +245,7 @@ fn intra_line_write_cc(hunk : &Hunk<u8>, _ : &Conf, _ : &[u8], _ : &[u8], out : 
             },
         };
     }
-    let chars = hunk.lines.iter();
+    let chars = hunk.items.iter();
     let context_pre : Vec<u8> = chars
         .take_while(|d| match d {
             DiffResult::Common (_) => true,
@@ -263,7 +263,7 @@ fn intra_line_write_cc(hunk : &Hunk<u8>, _ : &Conf, _ : &[u8], _ : &[u8], out : 
     }
 
     let context_post : Vec<u8> =
-        hunk.lines.iter().skip(context_pre.len())
+        hunk.items.iter().skip(context_pre.len())
         .skip_while(|d| match d {
             DiffResult::Common (_) => false,
             _ => true,
@@ -277,7 +277,7 @@ fn intra_line_write_wdiff(hunk : &Hunk<u8>, _ : &Conf,
     use WordDiffState::*;
     let mut line = vec![];
     let mut state = ShowingCommon;
-    for d in &hunk.lines {
+    for d in &hunk.items {
         state = match state {
             ShowingCommon => {
                 match d {
@@ -364,7 +364,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                 out : &mut Write) -> io::Result<()> {
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len)?;
-        for d in &self.lines {
+        for d in &self.items {
             match diff_offsets(d) {
                 (Some (o), Some (n)) => {
                     let diff = lcs_diff::diff::<u8>(&old_lines[o][..], &new_lines[n][..]);
@@ -379,7 +379,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                         };
                         out.write(pref)?;
                         let conf = Conf {context: 1000, ..*conf};
-                        display_diff_unified::<u8>(out, &conf,
+                        display_diff_hunked::<u8>(out, &conf,
                                                    &old_lines[o][..],
                                                    &new_lines[n][..], diff)?;
                     }
@@ -421,15 +421,15 @@ enum State<T : PartialEq + Clone + Debug> {
     // we've observed (and emitted) all immediately following removes.
     CollectingAdds(Option<Hunk<T>>, Vec<DiffResult<T>>),
 
-    // Hold on to the last N common lines we've seen, dump them
+    // Hold on to the last N common items we've seen, dump them
     // as the preceeding context if a new change (addition/removal)
     // is seen.
     // We also need to prepend a separator if there were context
-    // lines we had to drop, so our state also includes the number
-    // of observed common lines while in this state.
+    // items we had to drop, so our state also includes the number
+    // of observed common items while in this state.
     CollectingCommonsTail(Option<Hunk<T>>, usize, VecDeque<DiffResult<T>>),
 
-    // Accumulate up to $context lines, emit them, then switch
+    // Accumulate up to $context items, emit them, then switch
     // to CollectingCommonsTail.
     CollectingCommonsCorked(Option<Hunk<T>>, VecDeque<DiffResult<T>>),
 
@@ -437,11 +437,11 @@ enum State<T : PartialEq + Clone + Debug> {
     SequentialRemoves(Option<Hunk<T>>, Vec<DiffResult<T>>),
 }
 
-fn display_diff_unified<T>(
+fn display_diff_hunked<T>(
     out : &mut Write,
-                        conf : &Conf,
-                        old_lines : &[T],
-                        new_lines : &[T],
+    conf : &Conf,
+    old_lines : &[T],
+    new_lines : &[T],
     diff : Vec<DiffResult<T>>) -> io::Result<i32>
 where T : PartialEq + Clone + Debug,
 Hunk<T> : DisplayableHunk<DiffItem=T>
@@ -500,14 +500,14 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                         let mut commons = VecDeque::new();
                         commons.push_back(d);
                         // We've just seen a change; this needs to be followed by
-                        // some context lines.
+                        // some context items.
                         CollectingCommonsCorked(hunk, commons)
                     },
                 }
             },
             CollectingCommonsTail(mut hunk, seen, mut commons) => {
                 match d {
-                    // If the state changes, print out the last N lines, possibly
+                    // If the state changes, print out the last N items, possibly
                     // preceeded by a header
                     DiffResult::Added(_) => {
                         if seen > conf.context {
@@ -537,7 +537,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
             },
             CollectingCommonsCorked(mut hunk, mut commons) => {
                 match d {
-                    // State change -> print collected common lines
+                    // State change -> print collected common items
                     DiffResult::Added(_) => {
                         consume(&mut hunk, &mut commons.drain(..));
                         CollectingAdds(hunk, vec![d])
@@ -550,9 +550,9 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                     DiffResult::Common(_) => {
                         commons.push_back(d);
                         if commons.len() == conf.context {
-                            // We've accumulated $context common lines after
+                            // We've accumulated $context common items after
                             // a change; print out the hunk, then start collecting
-                            // common lines to print _before_ the next change.
+                            // common items to print _before_ the next change.
                             consume(&mut hunk, &mut commons.drain(..));
                             CollectingCommonsTail(hunk, 0, VecDeque::new())
                         } else {
@@ -594,10 +594,10 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
             consume(&mut hunk, &mut adds.drain(..));
             hunk
         },
-        // Those are common lines we collected in anticipation of the
+        // Those are common items we collected in anticipation of the
         // next change. No change is coming any more, so drop them here.
         CollectingCommonsTail(mut hunk, _, _) => hunk,
-        // We'll get here if there were < $context common lines between
+        // We'll get here if there were < $context common items between
         // the last change and the end of the file. We still need to
         // print them.
         CollectingCommonsCorked(mut hunk, mut commons) => {
@@ -662,7 +662,7 @@ fn diff_files(out : &mut Write, conf : &Conf, re : Option<&str>,
         return Ok (0); // Exit w/o producing any output
     }
 
-    display_diff_unified::<Vec<u8>>(out, conf, &old_lines, &new_lines, diff)
+    display_diff_hunked::<Vec<u8>>(out, conf, &old_lines, &new_lines, diff)
 }
 
 #[cfg(test)]
@@ -742,7 +742,7 @@ mod tests {
         let diff = lcs_diff::diff(s1.as_bytes(), s2.as_bytes());
         if exist_differences(&diff) {
             let conf = Conf {context : 1000, ..Conf::default()};
-            display_diff_unified(out, &conf, s1.as_bytes(), s2.as_bytes(), diff).unwrap();
+            display_diff_hunked(out, &conf, s1.as_bytes(), s2.as_bytes(), diff).unwrap();
         } else {
             out.write(s1.as_bytes()).unwrap();
         }
