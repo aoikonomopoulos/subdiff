@@ -22,14 +22,15 @@ use regex::bytes::Regex;
 struct Conf {
     debug : bool,
     context : usize,
+    mark_changed_common: bool,
 }
 
 impl Conf {
-    #[cfg(test)]
     fn default() -> Conf {
         Conf {
             debug : false,
             context : 3,
+            mark_changed_common : false,
         }
     }
 }
@@ -240,7 +241,12 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                         out.write(b" ")?;
                         out.write(&old_lines[o][..])?;
                     } else {
-                        out.write(b" ")?;
+                        let pref = if conf.mark_changed_common {
+                            b"="
+                        } else {
+                            b" "
+                        };
+                        out.write(pref)?;
                         let conf = Conf {context: 1000, ..*conf};
                         display_diff_unified::<u8>(out, &conf,
                                                    &old_lines[o][..],
@@ -694,8 +700,8 @@ fn main() {
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let conf = Conf {
-        debug : false,
         context : context,
+        ..Conf::default()
     };
     let ecode = match diff_files(&mut io::stdout(),
                                  &conf,
