@@ -19,9 +19,36 @@ use std::collections::VecDeque;
 use clap::{App, Arg};
 use regex::bytes::Regex;
 
+struct Conf {
+    debug : bool,
+    context : usize,
+}
+
+impl Conf {
+    #[cfg(test)]
+    fn default() -> Conf {
+        Conf {
+            debug : false,
+            context : 3,
+        }
+    }
+}
+
+macro_rules! dprintln {
+    ($dbg:expr, $fmt:expr, $( $args:expr ),*) => {
+        if cfg!(debug_assertions) {
+            if $dbg {
+                eprintln!($fmt, $( $args ),*)
+            }
+        }
+    }
+}
+
 trait DisplayableHunk where Self::DiffItem : PartialEq + Clone + Debug + Sized {
     type DiffItem;
-    fn do_write(&self, &[Self::DiffItem], &[Self::DiffItem], &mut Write) -> io::Result<()>;
+    fn do_write(&self, &Conf,
+                &[Self::DiffItem], &[Self::DiffItem],
+                &mut Write) -> io::Result<()>;
 }
 
 fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
@@ -126,7 +153,7 @@ fn extend(line : &mut Vec<u8>, s : &str) {
 
 impl DisplayableHunk for Hunk<u8> {
     type DiffItem = u8;
-    fn do_write(&self, _ : &[u8], _ : &[u8], out : &mut Write) -> io::Result<()> {
+    fn do_write(&self, _ : &Conf, _ : &[u8], _ : &[u8], out : &mut Write) -> io::Result<()> {
         use WordDiffState::*;
         let mut line = vec![];
         let mut state = ShowingCommon;
@@ -201,19 +228,21 @@ impl DisplayableHunk for Hunk<u8> {
 
 impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
-    fn do_write(&self, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
+    fn do_write(&self, conf : &Conf, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
                 out : &mut Write) -> io::Result<()> {
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len)?;
         for d in &self.lines {
             match diff_offsets(d) {
                 (Some (o), Some (n)) => {
-                    out.write(b" ")?;
                     let diff = lcs_diff::diff::<u8>(&old_lines[o][..], &new_lines[n][..]);
                     if !exist_differences(&diff) {
+                        out.write(b" ")?;
                         out.write(&old_lines[o][..])?;
                     } else {
-                        display_diff_unified::<u8>(out, 1000,
+                        out.write(b" ")?;
+                        let conf = Conf {context: 1000, ..*conf};
+                        display_diff_unified::<u8>(out, &conf,
                                                    &old_lines[o][..],
                                                    &new_lines[n][..], diff)?;
                     }
@@ -287,7 +316,7 @@ enum State<T : PartialEq + Clone + Debug> {
 
 fn display_diff_unified<T>(
     out : &mut Write,
-                        context : usize,
+                        conf : &Conf,
                         old_lines : &[T],
                         new_lines : &[T],
     diff : Vec<DiffResult<T>>) -> io::Result<i32>
@@ -299,7 +328,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
         match hunk {
             None => Ok (()),
             Some (hunk) => {
-                hunk.do_write(old_lines , new_lines, out)
+                hunk.do_write(conf, old_lines , new_lines, out)
             }
         }
     };
@@ -328,8 +357,8 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
     };
 
     for d in diff_results {
-        eprintln!("state = {:?}", state);
-        eprintln!("processing diff result: {:?}", d);
+        dprintln!(conf.debug, "state = {:?}", state);
+        dprintln!(conf.debug, "processing diff result: {:?}", d);
         state = match state {
             CollectingAdds(mut hunk, mut adds) => {
                 match d {
@@ -358,7 +387,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                     // If the state changes, print out the last N lines, possibly
                     // preceeded by a header
                     DiffResult::Added(_) => {
-                        if seen > context {
+                        if seen > conf.context {
                             dump_hunk(hunk.as_ref())?;
                             hunk = None
                         }
@@ -366,7 +395,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                         CollectingAdds(hunk, vec![d])
                     },
                     DiffResult::Removed(_) => {
-                        if seen > context {
+                        if seen > conf.context {
                             dump_hunk(hunk.as_ref())?;
                             hunk = None
                         }
@@ -376,7 +405,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                     },
                     DiffResult::Common(_) => {
                         commons.push_back(d);
-                        if commons.len() > context {
+                        if commons.len() > conf.context {
                             commons.pop_front();
                         }
                         CollectingCommonsTail(hunk, seen + 1, commons)
@@ -397,7 +426,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                     },
                     DiffResult::Common(_) => {
                         commons.push_back(d);
-                        if commons.len() == context {
+                        if commons.len() == conf.context {
                             // We've accumulated $context common lines after
                             // a change; print out the hunk, then start collecting
                             // common lines to print _before_ the next change.
@@ -433,7 +462,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
             },
         }
     }
-    eprintln!("Handling final state: {:?}", state);
+    dprintln!(conf.debug, "Handling final state: {:?}", state);
     // Cleanup
     let hunk = match state {
         // We might end up here if the last additions are
@@ -462,14 +491,15 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
     Ok (1)
 }
 
-fn extract_re_matches(re : &mut Regex, line : &[u8]) -> Vec<u8> {
+fn extract_re_matches(conf : &Conf, re : &mut Regex, line : &[u8]) -> Vec<u8> {
     let mut ret = vec![];
     match re.captures(line) {
         Some (caps) => {
             for i in 1..caps.len() {
                 let m = &caps[i];
                 unsafe {
-                    eprintln!("Got match: `{:?}`", String::from_utf8_unchecked(m.to_vec()))
+                    dprintln!(conf.debug, "Got match: `{:?}`",
+                              String::from_utf8_unchecked(m.to_vec()))
                 };
                 ret.write(m).unwrap();
             }
@@ -481,11 +511,11 @@ fn extract_re_matches(re : &mut Regex, line : &[u8]) -> Vec<u8> {
     ret
 }
 
-fn pick_lines(mut re : &mut Regex, lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
-    lines.iter().map(|l| extract_re_matches(&mut re, l)).collect()
+fn pick_lines(conf : &Conf, mut re : &mut Regex, lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
+    lines.iter().map(|l| extract_re_matches(conf, &mut re, l)).collect()
 }
 
-fn diff_files(out : &mut Write, context : usize, re : Option<&str>,
+fn diff_files(out : &mut Write, conf : &Conf, re : Option<&str>,
               old : &Path, new : &Path) -> io::Result<i32> {
     let old_lines = read_lines(old)?;
     let new_lines = read_lines(new)?;
@@ -500,7 +530,8 @@ fn diff_files(out : &mut Write, context : usize, re : Option<&str>,
                     exit(2)
                 }
             };
-            lcs_diff::diff(&pick_lines(&mut re, &old_lines), &pick_lines(&mut re, &new_lines))
+            lcs_diff::diff(&pick_lines(conf, &mut re, &old_lines),
+                           &pick_lines(conf, &mut re, &new_lines))
         },
         None => lcs_diff::diff(&old_lines, &new_lines)
     };
@@ -508,7 +539,7 @@ fn diff_files(out : &mut Write, context : usize, re : Option<&str>,
         return Ok (0); // Exit w/o producing any output
     }
 
-    display_diff_unified::<Vec<u8>>(out, context, &old_lines, &new_lines, diff)
+    display_diff_unified::<Vec<u8>>(out, conf, &old_lines, &new_lines, diff)
 }
 
 #[cfg(test)]
@@ -554,7 +585,8 @@ mod tests {
         let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
         let diff_output = &outp.stdout[pos..];
         let mut our_output : Vec<u8> = vec![];
-        diff_files(&mut our_output, 3, None, &old_p, &new_p).unwrap();
+        let conf = Conf {context: 3, ..Conf::default()};
+        diff_files(&mut our_output, &conf, None, &old_p, &new_p).unwrap();
         if our_output != diff_output {
             eprintln!("outputs differ! ours:");
             io::stderr().write(&our_output).unwrap();
@@ -563,6 +595,7 @@ mod tests {
             panic!("Output differs to the system diff output")
         }
     }
+
     #[test]
     fn test_combos() {
         let lines : Vec<&str>
@@ -583,7 +616,8 @@ mod tests {
     fn do_wdiff(s1 : &str, s2 : &str, out : &mut Write) {
         let diff = lcs_diff::diff(s1.as_bytes(), s2.as_bytes());
         if exist_differences(&diff) {
-            display_diff_unified(out, 1000, s1.as_bytes(), s2.as_bytes(), diff);
+            let conf = Conf {context : 1000, ..Conf::default()};
+            display_diff_unified(out, &conf, s1.as_bytes(), s2.as_bytes(), diff);
         } else {
             out.write(s1.as_bytes());
         }
@@ -659,8 +693,12 @@ fn main() {
         .get_matches();
 
     let context = parse_usize(matches.value_of("context").unwrap());
+    let conf = Conf {
+        debug : false,
+        context : context,
+    };
     let ecode = match diff_files(&mut io::stdout(),
-                                 context,
+                                 &conf,
                                  matches.value_of("common_re"),
                                  Path::new(matches.value_of("old").unwrap()),
                                  Path::new(matches.value_of("new").unwrap())) {
