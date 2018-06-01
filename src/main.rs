@@ -598,7 +598,9 @@ mod tests {
         let tmpdir = temporary::Directory::new("diff-test").unwrap();
         let mut cnt = 0;
         for p in prod {
-            eprintln!("Testing combo #{}", cnt);
+            // Testing is deterministic, this helps with being
+            // able to tell if a failing test is now succeeding
+            dprintln!(false, "Testing combo #{}", cnt);
             test_diff(&tmpdir, p.0, p.1);
             cnt += 1
         }
@@ -609,9 +611,9 @@ mod tests {
         let diff = lcs_diff::diff(s1.as_bytes(), s2.as_bytes());
         if exist_differences(&diff) {
             let conf = Conf {context : 1000, ..Conf::default()};
-            display_diff_unified(out, &conf, s1.as_bytes(), s2.as_bytes(), diff);
+            display_diff_unified(out, &conf, s1.as_bytes(), s2.as_bytes(), diff).unwrap();
         } else {
-            out.write(s1.as_bytes());
+            out.write(s1.as_bytes()).unwrap();
         }
     }
 
