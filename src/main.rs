@@ -268,20 +268,6 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
     }
 }
 
-fn dump_hunk<MyHunk : DisplayableHunk>(out : &mut Write,
-                     old_lines : &[<MyHunk as DisplayableHunk>::DiffItem],
-                     new_lines : &[<MyHunk as DisplayableHunk>::DiffItem],
-                hunk : Option<&MyHunk>) -> io::Result<()>
-where
-{
-    match hunk {
-        None => Ok (()),
-        Some (hunk) => {
-            hunk.do_write(old_lines, new_lines, out)
-        }
-    }
-}
-
 fn append<T: PartialEq + Clone>(hunk : &mut Option<Hunk<T>>, d : DiffResult<T>) {
     match hunk {
         None => {hunk.get_or_insert_with(|| Hunk::from_diff(d));},
