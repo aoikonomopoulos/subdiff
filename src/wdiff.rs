@@ -62,11 +62,11 @@ impl CharacterClass {
     fn write(&self, out : &mut Write) -> io::Result<()>{
         use self::CharacterClass::*;
         match self {
-            White => out.write_all("\\s".as_bytes()),
-            Digit => out.write_all("\\d".as_bytes()),
-            Alpha => out.write_all("\\a".as_bytes()),
-            Word => out.write_all("\\w".as_bytes()),
-            Any => out.write_all(".".as_bytes())
+            White => out.write_all(b"\\s"),
+            Digit => out.write_all(b"\\d"),
+            Alpha => out.write_all(b"\\a"),
+            Word => out.write_all(b"\\w"),
+            Any => out.write_all(b".")
         }
     }
 }
