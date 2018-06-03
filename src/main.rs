@@ -52,11 +52,56 @@ fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
 }
 
 fn exist_differences<T : PartialEq + Clone>(results : &[DiffResult<T>]) -> bool {
-    results.iter().any(|r|
-                       match r {
-                           DiffResult::Common (_) => false,
-                           _ => true,
-                       })
+    results.iter().any(|r| match r {
+        DiffResult::Common (_) => false,
+        _ => true,
+    })
+}
+
+fn sel_part_of_line(conf : &Conf, re : &Regex, line : &[u8]) -> Option<Vec<u8>> {
+    if let Some (caps) = re.captures(line) {
+        let mut ret = vec![];
+        for i in 1..caps.len() {
+            match caps.get(i) {
+                Some (m) => {
+                    dprintln!(conf.debug, "Got match[{}]: `{}`", i,
+                              String::from_utf8(m.as_bytes().to_vec()).unwrap());
+                    ret.write_all(m.as_bytes()).unwrap()
+                },
+                None => {
+                    dprintln!(conf.debug, "No match[{}]", i)
+                }
+            }
+        }
+        Some (ret)
+    } else {
+        None
+    }
+}
+
+trait ReSelector {
+    fn sel(&self, &Conf, &[u8]) -> Option<Vec<u8>>;
+}
+
+struct SingleRe(Regex);
+
+impl SingleRe {
+    fn build(s : &str) -> SingleRe {
+        match Regex::new(s) {
+            Ok (re) => SingleRe(re),
+            Err (err) => {
+                eprintln!("Could not compile regular expression `{}`: {}",
+                          s, err);
+                exit(2)
+            }
+        }
+    }
+}
+
+impl ReSelector for SingleRe {
+    fn sel(&self, conf : &Conf, line : &[u8]) -> Option<Vec<u8>> {
+        sel_part_of_line(conf, &self.0, line)
+    }
 }
 
 struct MultiRe {
@@ -92,32 +137,21 @@ impl MultiRe {
             regexes,
         }
     }
-    fn sub(&self, conf : &Conf, line : &[u8]) -> Option<Vec<u8>> {
+}
+
+impl ReSelector for MultiRe {
+    fn sel(&self, conf : &Conf, line : &[u8]) -> Option<Vec<u8>> {
         let mut matches = self.multi.matches(line).into_iter();
         match matches.next() {
-            None => None,
+            None => {dprintln!(true, "No multi matches{}!", ""); None},
             Some (single) => {
                 match matches.next() {
                     None => {
-                        let mut ret = vec![];
                         let re = &self.regexes[single];
-                        if let Some (caps) = re.captures(line) {
-                            for i in 1..caps.len() {
-                                match caps.get(i) {
-                                    Some (m) => {
-                                        dprintln!(conf.debug, "Got match[{}]: `{}`", i,
-                                                  String::from_utf8(m.as_bytes().to_vec()).unwrap());
-                                        ret.write_all(m.as_bytes()).unwrap();
-                                    },
-                                    None => {
-                                        dprintln!(conf.debug, "No match[{}]", i);
-                                    }
-                                }
-                            }
-                        } else {
-                            panic!("RegexSet claimed a match, but the RE disagrees")
+                        match sel_part_of_line(conf, re, line) {
+                            m @ Some (_) => m,
+                            None => panic!("RegexSet claimed a match, but the RE disagrees")
                         }
-                        Some (ret)
                     },
                     Some (_) => {
                         eprintln!("Line is matched by more than \
@@ -136,16 +170,37 @@ impl MultiRe {
     }
 }
 
-fn extract_re_matches(conf : &Conf, re : &mut MultiRe, line : &[u8]) -> Vec<u8> {
-    match re.sub(conf, line) {
+fn build_re_selector<I, S>(re_strs : I) -> Box<ReSelector>
+where
+    S : AsRef<str>,
+    I : IntoIterator<Item=S> + Clone
+{
+    let len = re_strs.clone().into_iter().count();
+    // When the user specified a single RE, don't use a RegexSet,
+    // so that we can get the matches w/o running it twice.
+    // When we are given >1 RE, we need to scan all REs anyway, in
+    // order to make sure there's exactly one match. In that case,
+    // use RegexSet to scan in parallel, then go back and run only
+    // the RE that matched to determine what parts of the line to
+    // use.
+    match len {
+        1 => {
+            let s = re_strs.into_iter().next().unwrap();
+            Box::new(SingleRe::build(s.as_ref()))
+        },
+        _ => Box::new(MultiRe::build(re_strs)),
+    }
+}
+
+fn extract_re_matches(conf : &Conf, re : &ReSelector, line : &[u8]) -> Vec<u8> {
+    match re.sel(conf, line) {
         None => line.to_vec(),
         Some (s) => s,
     }
 }
 
-fn pick_lines(conf : &Conf, mut mre : &mut MultiRe, lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
-    lines.iter().map(|l| { extract_re_matches(conf, &mut mre, l)
-    }).collect()
+fn pick_lines(conf : &Conf, mre : &ReSelector, lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
+    lines.iter().map(|l| extract_re_matches(conf, mre, l)).collect()
 }
 
 fn diff_files(out : &mut Write, conf : &Conf, re : Option<Values>,
@@ -155,9 +210,9 @@ fn diff_files(out : &mut Write, conf : &Conf, re : Option<Values>,
 
     let diff : Vec<DiffResult<Vec<u8>>> = match re {
         Some (values) => {
-            let mut mre = MultiRe::build(values);
-            lcs_diff::diff(&pick_lines(conf, &mut mre, &old_lines),
-                           &pick_lines(conf, &mut mre, &new_lines))
+            let mre = build_re_selector(values);
+            lcs_diff::diff(&pick_lines(conf, &*mre, &old_lines),
+                           &pick_lines(conf, &*mre, &new_lines))
         },
         None => lcs_diff::diff(&old_lines, &new_lines)
     };
