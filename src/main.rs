@@ -145,7 +145,7 @@ fn main() {
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let conf = Conf {
-        context : context,
+        context,
         ..Conf::default()
     };
     let ecode = match diff_files(&mut io::stdout(),
