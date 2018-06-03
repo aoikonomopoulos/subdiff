@@ -65,10 +65,8 @@ fn extract_re_matches(conf : &Conf, re : &mut Regex, line : &[u8]) -> Vec<u8> {
         Some (caps) => {
             for i in 1..caps.len() {
                 let m = &caps[i];
-                unsafe {
-                    dprintln!(conf.debug, "Got match: `{:?}`",
-                              String::from_utf8_unchecked(m.to_vec()))
-                };
+                dprintln!(conf.debug, "Got match: `{}`",
+                          String::from_utf8(m.to_vec()).unwrap());
                 ret.write(m).unwrap();
             }
         },
