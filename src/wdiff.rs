@@ -201,6 +201,6 @@ pub fn intra_line_write_wdiff(hunk : &Hunk<u8>, _ : &Conf,
         ShowingAdds | ShowingRemoves => line.push(b'}'),
         ShowingCommon => (),
     };
-    out.write(&line)?;
+    out.write_all(&line)?;
     Ok (())
 }

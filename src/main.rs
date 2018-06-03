@@ -67,11 +67,11 @@ fn extract_re_matches(conf : &Conf, re : &mut Regex, line : &[u8]) -> Vec<u8> {
                 let m = &caps[i];
                 dprintln!(conf.debug, "Got match: `{}`",
                           String::from_utf8(m.to_vec()).unwrap());
-                ret.write(m).unwrap();
+                ret.write_all(m).unwrap();
             }
         },
         None => {
-            ret.write(line).unwrap();
+            ret.write_all(line).unwrap();
         }
     }
     ret

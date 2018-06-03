@@ -106,15 +106,15 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                 (Some (o), Some (n)) => {
                     let diff = lcs_diff::diff::<u8>(&old_lines[o][..], &new_lines[n][..]);
                     if !super::exist_differences(&diff) {
-                        out.write(b" ")?;
-                        out.write(&old_lines[o][..])?;
+                        out.write_all(b" ")?;
+                        out.write_all(&old_lines[o][..])?;
                     } else {
                         let pref = if conf.mark_changed_common {
                             b"="
                         } else {
                             b" "
                         };
-                        out.write(pref)?;
+                        out.write_all(pref)?;
                         let conf = Conf {context: 1000, ..*conf};
                         display_diff_hunked::<u8>(out, &conf,
                                                    &old_lines[o][..],
@@ -122,12 +122,12 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                     }
                 },
                 (Some (o), None) => {
-                    out.write(b"-")?;
-                    out.write(&old_lines[o][..])?;
+                    out.write_all(b"-")?;
+                    out.write_all(&old_lines[o][..])?;
                 },
                 (None, Some (n)) => {
-                    out.write(b"+")?;
-                    out.write(&new_lines[n][..])?;
+                    out.write_all(b"+")?;
+                    out.write_all(&new_lines[n][..])?;
                 },
                 _ => panic!("Can't print DiffElement with neither side"),
             }
