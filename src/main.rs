@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
 use clap::{App, Arg, Values};
-use regex::bytes::{Regex, RegexSet};
+use regex::bytes::{Regex, RegexSet, RegexBuilder, RegexSetBuilder};
 
 macro_rules! dprintln {
     ($dbg:expr, $fmt:expr, $( $args:expr ),*) => {
@@ -87,7 +87,9 @@ struct SingleRe(Regex);
 
 impl SingleRe {
     fn build(s : &str) -> SingleRe {
-        match Regex::new(s) {
+        // Note: Our lines contain the EOL character. Use multi-line mode, so that
+        // $ can match the EOL and the RE will still work if the user does ^foo$.
+        match RegexBuilder::new(s).multi_line(true).build() {
             Ok (re) => SingleRe(re),
             Err (err) => {
                 eprintln!("Could not compile regular expression `{}`: {}",
@@ -117,15 +119,17 @@ impl MultiRe {
         // Compile the individual REs first, so that we can tell
         // the user which RE had an error.
         let regexes =
-            strs.clone().into_iter().map(|s| match Regex::new(s.as_ref()) {
-                Ok (re) => re,
-                Err (err) => {
-                    eprintln!("Could not compile regular expression `{}`: {}",
-                              s.as_ref(), err);
-                    exit(2)
-                },
+            strs.clone().into_iter().map(|s| {
+                match RegexBuilder::new(s.as_ref()).multi_line(true).build() {
+                    Ok (re) => re,
+                    Err (err) => {
+                        eprintln!("Could not compile regular expression `{}`: {}",
+                                  s.as_ref(), err);
+                        exit(2)
+                    },
+                }
             }).collect();
-        let multi = match RegexSet::new(strs) {
+        let multi = match RegexSetBuilder::new(strs).multi_line(true).build() {
             Ok (set) => set,
             Err (err) => {
                 eprintln!("Could not build regular expression set: {}", err);
