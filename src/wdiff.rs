@@ -4,6 +4,7 @@ use super::lcs_diff::*;
 use hunked::Hunk;
 use conf::Conf;
 
+#[cfg_attr(feature = "cargo-clippy", allow(enum_variant_names))]
 enum WordDiffState {
     ShowingCommon,
     ShowingRemoves,
