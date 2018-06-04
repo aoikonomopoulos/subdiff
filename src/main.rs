@@ -269,11 +269,17 @@ fn main() {
              .help("Format for displayed context lines")
              .possible_values(&conf::ContextLineFormat::allowed_values())
              .default_value("wdiff"))
+        .arg(Arg::with_name("mark_changed_context")
+             .required(false)
+             .long("mark-changed-context")
+             .takes_value(false)
+             .help("Mark changed context lines with '!'"))
         .get_matches();
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let conf = Conf {
         context,
+        mark_changed_context : matches.is_present("mark_changed_context"),
         ..Conf::default()
     };
     let conf = match matches.value_of("context_format") {

@@ -114,7 +114,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                         out.write_all(b" ")?;
                         out.write_all(&old_lines[o][..])?;
                     } else {
-                        let pref = if conf.mark_changed_common {
+                        let pref = if conf.mark_changed_context {
                             b"!"
                         } else {
                             b" "

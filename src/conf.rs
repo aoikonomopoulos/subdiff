@@ -30,7 +30,7 @@ impl ContextLineFormat {
 pub struct Conf {
     pub debug : bool,
     pub context : usize,
-    pub mark_changed_common: bool,
+    pub mark_changed_context: bool,
     pub context_format: ContextLineFormat,
 }
 
@@ -39,7 +39,7 @@ impl Conf {
         Conf {
             debug : false,
             context : 3,
-            mark_changed_common : false,
+            mark_changed_context : false,
             context_format : ContextLineFormat::Wdiff,
         }
     }
