@@ -147,7 +147,7 @@ impl ReSelector for MultiRe {
     fn sel(&self, conf : &Conf, line : &[u8]) -> Option<Vec<u8>> {
         let mut matches = self.multi.matches(line).into_iter();
         match matches.next() {
-            None => {dprintln!(true, "No multi matches{}!", ""); None},
+            None => None,
             Some (single) => {
                 match matches.next() {
                     None => {
