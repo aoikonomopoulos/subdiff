@@ -89,6 +89,13 @@ fn sel_part_of_line(conf : &Conf, re : &Regex, line : &[u8]) -> Option<Vec<u8>> 
                 }
             }
         }
+        // The user probably hasn't matched the trailing newline, but
+        // they may have requested that the matching part be printed,
+        // so add a newline here. XXX: this will interfere with
+        // final lines that end at EOF (i.e. not at a newline).
+        if (ret.len() == 0) || (ret[ret.len() - 1] != b'\n') {
+            ret.push(b'\n')
+        }
         Some (ret)
     } else {
         None
@@ -225,14 +232,23 @@ fn pick_lines(conf : &Conf, mre : &ReSelector, lines : &[Vec<u8>]) -> Vec<Vec<u8
 
 fn diff_files(out : &mut Write, conf : &Conf, re : Option<Values>,
               old : &Path, new : &Path) -> io::Result<i32> {
-    let old_lines = read_lines(old)?;
-    let new_lines = read_lines(new)?;
+    let mut old_lines = read_lines(old)?;
+    let mut new_lines = read_lines(new)?;
 
     let diff : Vec<DiffResult<Vec<u8>>> = match re {
         Some (values) => {
             let mre = build_re_selector(values);
-            lcs_diff::diff(&pick_lines(conf, &*mre, &old_lines),
-                           &pick_lines(conf, &*mre, &new_lines))
+            let pick_old = pick_lines(conf, &*mre, &old_lines);
+            let pick_new = pick_lines(conf, &*mre, &new_lines);
+            let d = lcs_diff::diff(&pick_old, &pick_new);
+            if conf.display_sub {
+                // If the user requested that only the matching parts
+                // be produced as output, reference the those parts
+                // as the lines of the original files
+                old_lines = pick_old;
+                new_lines = pick_new;
+            }
+            d
         },
         None => lcs_diff::diff(&old_lines, &new_lines)
     };
@@ -290,12 +306,19 @@ fn main() {
              .long("mark-changed-context")
              .takes_value(false)
              .help("Mark changed context lines with '!'"))
+        .arg(Arg::with_name("display_sub")
+             .required(false)
+             .long("display-sub")
+             .takes_value(false)
+             // This is mostly to make it easy to debug the RE
+             .help("Display diff of selected substrings"))
         .get_matches();
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let conf = Conf {
         context,
         mark_changed_context : matches.is_present("mark_changed_context"),
+        display_sub : matches.is_present("display_sub"),
         ..Conf::default()
     };
     let conf = match matches.value_of("context_format") {
