@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::collections::VecDeque;
 use super::lcs_diff;
 use super::lcs_diff::DiffResult;
-use super::conf::Conf;
+use super::conf::{Conf, ContextLineFormat};
 use super::wdiff::*;
 
 pub trait DisplayableHunk where Self::DiffItem : PartialEq + Clone + Debug + Sized {
@@ -87,10 +87,13 @@ impl DisplayableHunk for Hunk<u8> {
     fn do_write(&self, conf : &Conf,
                 o : &[u8], n : &[u8],
                 out : &mut Write) -> io::Result<()> {
-        if conf.summarize_common_cc {
-            intra_line_write_cc(&self, conf, o, n, out)
-        } else {
-            intra_line_write_wdiff(&self, conf, o, n, out)
+        match conf.context_format {
+            ContextLineFormat::CC =>
+                intra_line_write_cc(&self, conf, o, n, out),
+            ContextLineFormat::Wdiff =>
+                intra_line_write_wdiff(&self, conf, o, n, out),
+            ContextLineFormat::Old =>
+                out.write_all(o),
         }
     }
 }
@@ -115,7 +118,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                             b" "
                         };
                         out.write_all(pref)?;
-                        let conf = Conf {context: 1000, ..*conf};
+                        let conf = Conf {context: 1000, ..conf.clone()};
                         display_diff_hunked::<u8>(out, &conf,
                                                    &old_lines[o][..],
                                                    &new_lines[n][..], diff)?;

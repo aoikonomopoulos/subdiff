@@ -262,12 +262,23 @@ fn main() {
              .number_of_values(1)
              .value_name("RE")
              .help("Compare the parts of lines matched by this regexp"))
+        .arg(Arg::with_name("context_format")
+             .required(false)
+             .long("context-format")
+             .takes_value(true)
+             .help("Format for displayed context lines")
+             .possible_values(&conf::ContextLineFormat::allowed_values())
+             .default_value("wdiff"))
         .get_matches();
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let conf = Conf {
         context,
         ..Conf::default()
+    };
+    let conf = match matches.value_of("context_format") {
+        None => conf,
+        Some (v) => Conf { context_format : conf::ContextLineFormat::from_str(v), ..conf},
     };
     let ecode = match diff_files(&mut io::stdout(),
                                  &conf,
