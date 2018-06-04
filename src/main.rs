@@ -61,9 +61,25 @@ fn exist_differences<T : PartialEq + Clone>(results : &[DiffResult<T>]) -> bool 
 fn sel_part_of_line(conf : &Conf, re : &Regex, line : &[u8]) -> Option<Vec<u8>> {
     if let Some (caps) = re.captures(line) {
         let mut ret = vec![];
+        // Rightmost end of the matches we've seen so far.
+        // For nested captures, e.g. ((a|b))+, it might be that
+        // we'll see a fragment that's already been matched by
+        // the outer group. Luckily, matches are returned in
+        // the same order as the captures appear in the RE (and
+        // they are always properly nested), so it's enough to
+        // skip matches that refer to a part of the line we've
+        // already selected.
+        let mut idx = 0;
         for i in 1..caps.len() {
             match caps.get(i) {
                 Some (m) => {
+                    if m.start() < idx {
+                        // AFAIK, there's no way for matches to overlap but
+                        // not be nested.
+                        assert!(m.end() <= idx);
+                        continue
+                    };
+                    idx = m.end();
                     dprintln!(conf.debug, "Got match[{}]: `{}`", i,
                               String::from_utf8(m.as_bytes().to_vec()).unwrap());
                     ret.write_all(m.as_bytes()).unwrap()
