@@ -3,11 +3,12 @@ pub enum ContextLineFormat {
     CC,
     Wdiff,
     Old,
+    New,
 }
 
 impl ContextLineFormat {
     pub fn allowed_values() -> Vec<&'static str> {
-        vec!["cc", "wdiff", "old"]
+        vec!["cc", "wdiff", "old", "new"]
     }
     pub fn from_str(s : &str) -> ContextLineFormat {
         use self::ContextLineFormat::*;
@@ -17,6 +18,8 @@ impl ContextLineFormat {
             Wdiff
         } else if s == "old" {
             Old
+        } else if s == "new" {
+            New
         } else {
             panic!("Unsupported value: `{}`", s);
         }

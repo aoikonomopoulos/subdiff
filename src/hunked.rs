@@ -94,6 +94,8 @@ impl DisplayableHunk for Hunk<u8> {
                 intra_line_write_wdiff(&self, conf, o, n, out),
             ContextLineFormat::Old =>
                 out.write_all(o),
+            ContextLineFormat::New =>
+                out.write_all(n),
         }
     }
 }
