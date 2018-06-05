@@ -100,12 +100,23 @@ impl DisplayableHunk for Hunk<u8> {
     }
 }
 
+fn fmt_len(len : usize) -> String {
+    let mut ret = String::new();
+    if len > 1 {
+        use std::fmt::Write;
+        write!(ret, ",{}", len).unwrap();
+    }
+    ret
+}
+
 impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
     fn do_write(&self, conf : &Conf, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
                 out : &mut Write) -> io::Result<()> {
-        writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
-                 self.new_start + 1, self.new_len)?;
+        writeln!(out, "@@ -{}{} +{}{} @@", self.old_start + 1,
+                 fmt_len(self.old_len),
+                 self.new_start + 1,
+                 fmt_len(self.new_len))?;
         let mut last_removed_nl = None;
         let mut last_added_nl = None;
         for d in self.items.iter().rev() {
