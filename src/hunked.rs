@@ -106,6 +106,45 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                 out : &mut Write) -> io::Result<()> {
         writeln!(out, "@@ -{},{} +{},{} @@", self.old_start + 1, self.old_len,
                  self.new_start + 1, self.new_len)?;
+        let mut last_removed_nl = None;
+        let mut last_added_nl = None;
+        for d in self.items.iter().rev() {
+            match d {
+                DiffResult::Common (_) => (),
+                DiffResult::Removed (r) => {
+                    match last_removed_nl {
+                        Some (_) => (),
+                        None => {
+                            let o = r.old_index.unwrap();
+                            if o < (old_lines.len() - 1) {
+                                continue
+                            }
+                            let lo = &old_lines[o][..];
+                            last_removed_nl = Some (lo[lo.len() - 1] == b'\n');
+                            if last_added_nl.is_some() {
+                                break
+                            }
+                        }
+                    }
+                },
+                DiffResult::Added (a) => {
+                    match last_added_nl {
+                        Some (_) => (),
+                        None => {
+                            let n = a.new_index.unwrap();
+                            if n < (new_lines.len() - 1) {
+                                continue
+                            }
+                            let ln = &new_lines[n][..];
+                            last_added_nl = Some (ln[ln.len() - 1] == b'\n');
+                            if last_removed_nl.is_some() {
+                                break
+                            }
+                        }
+                    }
+                },
+            }
+        }
         for d in &self.items {
             match diff_offsets(d) {
                 (Some (o), Some (n)) => {
@@ -129,10 +168,36 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                 (Some (o), None) => {
                     out.write_all(b"-")?;
                     out.write_all(&old_lines[o][..])?;
+                    if o == (old_lines.len() - 1) {
+                        match (last_removed_nl, last_added_nl) {
+                            (Some (o_has_nl), Some (n_has_nl)) => {
+                                if !o_has_nl && n_has_nl {
+                                    out.write_all(b"\n\\ No newline at end of file\n")?;
+                                }
+                            },
+                            (Some (false), None) => {
+                                out.write_all(b"\n\\ No newline at end of file\n")?;
+                            },
+                            _ => (),
+                        }
+                    }
                 },
                 (None, Some (n)) => {
                     out.write_all(b"+")?;
                     out.write_all(&new_lines[n][..])?;
+                    if n == (new_lines.len() - 1) {
+                        match (last_removed_nl, last_added_nl) {
+                            (Some (o_has_nl), Some (n_has_nl)) => {
+                                if o_has_nl && !n_has_nl {
+                                    out.write_all(b"\n\\ No newline at end of file\n")?;
+                                }
+                            },
+                            (None, Some (false)) => {
+                                out.write_all(b"\n\\ No newline at end of file\n")?;
+                            },
+                            _ => (),
+                        }
+                    }
                 },
                 _ => panic!("Can't print DiffElement with neither side"),
             }

@@ -53,7 +53,11 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
 
 #[test]
 fn combos_against_diff() {
-    let conf = Conf {context: 3, ..Conf::default()};
+    let conf = Conf {
+        context: 3,
+        debug : false,
+        ..Conf::default()
+    };
     let lines : Vec<&str>
         = vec!["a\n", "b\n", "c\n", "d\n", "e\n", "f\n", "g\n", "h\n", "i\n", "j\n"];
     let combos1 : Vec<Vec<&str>> = lines.iter().cloned().combinations(8).collect();
@@ -64,7 +68,7 @@ fn combos_against_diff() {
     for p in prod {
         // Testing is deterministic, this helps with being
         // able to tell if a failing test is now succeeding
-        dprintln!(false, "Testing combo #{}", cnt);
+        dprintln!(conf.debug, "Testing combo #{}", cnt);
         test_diff(&conf, &tmpdir, &p.0, &p.1);
         cnt += 1
     }
@@ -117,15 +121,23 @@ fn context_wdiff() {
 // XFAIL: we need to implement proper EOF-without-newline handling,
 // both for regular operation and for --display-sub.
 #[test]
-#[ignore]
 fn newline_at_eof_handling() {
     let conf = Conf {
         debug : true,
         ..Conf::default()
     };
     let tmpdir = temporary::Directory::new("newline-at-eof").unwrap();
+
+    // Both files end w/o a newline
     test_diff(&conf, &tmpdir, &["a\n", "b"], &["a\n", "b"]);
+
+    // Both files end at a newline
     test_diff(&conf, &tmpdir, &["a\n", "b\n"], &["a\n", "b\n"]);
+
+    // Old file ends w/o a newline
     test_diff(&conf, &tmpdir, &["a\n", "b"], &["a\n", "b\n"]);
+
+    // New file ends w/o a newline
     test_diff(&conf, &tmpdir, &["a\n", "b\n"], &["a\n", "b"]);
+
 }
