@@ -52,7 +52,7 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
 }
 
 #[test]
-fn test_combos() {
+fn combos_against_diff() {
     let conf = Conf {context: 3, ..Conf::default()};
     let lines : Vec<&str>
         = vec!["a\n", "b\n", "c\n", "d\n", "e\n", "f\n", "g\n", "h\n", "i\n", "j\n"];
@@ -96,7 +96,7 @@ fn check_wdiff(s1 : &str, s2 : &str, exp : &str) {
 }
 
 #[test]
-fn test_wdiff() {
+fn context_wdiff() {
     check_wdiff("", "", "");
     check_wdiff("", "a", "+{a}");
     check_wdiff("a", "", "-{a}");
