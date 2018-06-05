@@ -10,7 +10,7 @@ impl ContextLineFormat {
     pub fn allowed_values() -> Vec<&'static str> {
         vec!["cc", "wdiff", "old", "new"]
     }
-    pub fn from_str(s : &str) -> ContextLineFormat {
+    pub fn new(s : &str) -> ContextLineFormat {
         use self::ContextLineFormat::*;
         if s == "cc" {
             CC

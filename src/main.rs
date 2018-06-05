@@ -93,7 +93,7 @@ fn sel_part_of_line(conf : &Conf, re : &Regex, line : &[u8]) -> Option<Vec<u8>> 
         // they may have requested that the matching part be printed,
         // so add a newline here. XXX: this will interfere with
         // final lines that end at EOF (i.e. not at a newline).
-        if (ret.len() == 0) || (ret[ret.len() - 1] != b'\n') {
+        if ret.is_empty() || (ret[ret.len() - 1] != b'\n') {
             ret.push(b'\n')
         }
         Some (ret)
@@ -323,7 +323,7 @@ fn main() {
     };
     let conf = match matches.value_of("context_format") {
         None => conf,
-        Some (v) => Conf { context_format : conf::ContextLineFormat::from_str(v), ..conf},
+        Some (v) => Conf { context_format : conf::ContextLineFormat::new(v), ..conf},
     };
     let ecode = match diff_files(&mut io::stdout(),
                                  &conf,
