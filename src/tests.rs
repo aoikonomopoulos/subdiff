@@ -123,21 +123,24 @@ fn context_wdiff() {
 #[test]
 fn newline_at_eof_handling() {
     let conf = Conf {
-        debug : true,
+        debug : false,
         ..Conf::default()
     };
     let tmpdir = temporary::Directory::new("newline-at-eof").unwrap();
 
-    // Both files end w/o a newline
+    // Both files end w/o a newline.
     test_diff(&conf, &tmpdir, &["a\n", "b"], &["a\n", "b"]);
 
-    // Both files end at a newline
+    // Both files end at a newline.
     test_diff(&conf, &tmpdir, &["a\n", "b\n"], &["a\n", "b\n"]);
 
-    // Old file ends w/o a newline
+    // Old file ends w/o a newline.
     test_diff(&conf, &tmpdir, &["a\n", "b"], &["a\n", "b\n"]);
 
-    // New file ends w/o a newline
+    // New file ends w/o a newline.
     test_diff(&conf, &tmpdir, &["a\n", "b\n"], &["a\n", "b"]);
 
+    // Test earlier printing of no-newline message.
+    test_diff(&conf, &tmpdir, &["a\n", "b\n", "c\n", "d\n", "e\n", "f"], &["a\n"]);
+    test_diff(&conf, &tmpdir, &["a\n"], &["a\n", "b\n", "c\n", "d\n", "e\n", "f"]);
 }
