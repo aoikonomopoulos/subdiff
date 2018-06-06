@@ -100,23 +100,42 @@ impl DisplayableHunk for Hunk<u8> {
     }
 }
 
-fn fmt_len(len : usize) -> String {
-    let mut ret = String::new();
-    if len > 1 {
-        use std::fmt::Write;
-        write!(ret, ",{}", len).unwrap();
+fn write_off_len(out : &mut Write,
+                 lines : &[Vec<u8>],
+                 off : usize, len : usize) -> io::Result<()> {
+    // Special case galore: if the file is empty, its (offset, len) in
+    // the hunk header has to be 0,0.
+    if off == 0 && lines.is_empty() {
+        write!(out, "0,0")?;
+        return Ok (())
+    } else {
+        write!(out, "{}", off + 1)?;
     }
-    ret
+    // If the length of the lines in the hunk for this file is 1,
+    // diff doesn't include the length in the output.
+    if len > 1 {
+        write!(out, ",{}", len)?;
+    }
+    Ok (())
+}
+
+fn write_hunk_header(out : &mut Write,
+                     old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
+                     hunk : &Hunk<Vec<u8>>) -> io::Result<()> {
+    let mut header = vec![];
+    write!(header, "@@ -")?;
+    write_off_len(&mut header, old_lines, hunk.old_start, hunk.old_len)?;
+    write!(header, " +")?;
+    write_off_len(&mut header, new_lines, hunk.new_start, hunk.new_len)?;
+    writeln!(header, " @@")?;
+    out.write_all(&header)
 }
 
 impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
     fn do_write(&self, conf : &Conf, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
                 out : &mut Write) -> io::Result<()> {
-        writeln!(out, "@@ -{}{} +{}{} @@", self.old_start + 1,
-                 fmt_len(self.old_len),
-                 self.new_start + 1,
-                 fmt_len(self.new_len))?;
+        write_hunk_header(out, old_lines, new_lines, self)?;
         let mut last_removed_nl = None;
         let mut last_added_nl = None;
         for d in self.items.iter().rev() {
