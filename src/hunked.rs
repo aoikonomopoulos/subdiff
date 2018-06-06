@@ -364,6 +364,10 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                         SequentialRemoves(hunk, vec![])
                     },
                     DiffResult::Common(_) => {
+                        if seen > conf.context {
+                            dump_hunk(hunk.as_ref())?;
+                            hunk = None
+                        }
                         commons.push_back(d);
                         if commons.len() > conf.context {
                             commons.pop_front();
@@ -385,14 +389,15 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                         SequentialRemoves(hunk, vec![])
                     },
                     DiffResult::Common(_) => {
-                        commons.push_back(d);
                         if commons.len() == conf.context {
                             // We've accumulated $context common items after
                             // a change; print out the hunk, then start collecting
                             // common items to print _before_ the next change.
                             consume(&mut hunk, &mut commons.drain(..));
-                            CollectingCommonsTail(hunk, 0, VecDeque::new())
+                            commons.push_back(d);
+                            CollectingCommonsTail(hunk, 1, commons)
                         } else {
+                            commons.push_back(d);
                             CollectingCommonsCorked(hunk, commons)
                         }
                     },
