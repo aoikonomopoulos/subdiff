@@ -34,13 +34,14 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
     }
     new.flush().unwrap();
     let outp = Command::new("diff")
-        .args(&[OsStr::new("-U"), OsStr::new("3"), old_p.as_os_str(), new_p.as_os_str()])
+        .args(&[OsStr::new("-U"),
+                OsStr::new(&conf.context.to_string()),
+                old_p.as_os_str(),
+                new_p.as_os_str()])
         .output().unwrap();
     let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
     let diff_output = &outp.stdout[pos..];
     let mut our_output : Vec<u8> = vec![];
-    dprintln!(conf.debug, "Our output: `{}`", String::from_utf8(our_output.clone()).unwrap());
-    dprintln!(conf.debug, "Diff's output: `{}`", String::from_utf8(diff_output.to_vec()).unwrap());
     diff_files(&mut our_output, conf, None, &old_p, &new_p).unwrap();
     if our_output != diff_output {
         eprintln!("outputs differ! ours:");
@@ -54,23 +55,28 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
 #[test]
 fn combos_against_diff() {
     let conf = Conf {
-        context: 3,
+        context: 1,
         debug : false,
         ..Conf::default()
     };
     let lines : Vec<&str>
         = vec!["a\n", "b\n", "c\n", "d\n", "e\n", "f\n", "g\n", "h\n", "i\n", "j\n"];
-    let combos1 : Vec<Vec<&str>> = lines.iter().cloned().combinations(8).collect();
-    let combos2 : Vec<Vec<&str>> = lines.iter().cloned().combinations(8).collect();
-    let prod = iproduct!(combos1, combos2);
+
     let tmpdir = temporary::Directory::new("diff-test").unwrap();
     let mut cnt = 0;
-    for p in prod {
-        // Testing is deterministic, this helps with being
-        // able to tell if a failing test is now succeeding
-        dprintln!(conf.debug, "Testing combo #{}", cnt);
-        test_diff(&conf, &tmpdir, &p.0, &p.1);
-        cnt += 1
+    for i in 0..6 {
+        for j in 0..6 {
+            let combos1 : Vec<Vec<&str>> = lines.iter().cloned().combinations(i).collect();
+            let combos2 : Vec<Vec<&str>> = lines.iter().cloned().combinations(j).collect();
+            let prod = iproduct!(combos1, combos2);
+            for p in prod {
+                // Testing is deterministic, this helps with being
+                // able to tell if a failing test is now succeeding
+                dprintln!(conf.debug, "Testing combo #{}", cnt);
+                test_diff(&conf, &tmpdir, &p.0, &p.1);
+                cnt += 1
+            }
+        }
     }
     tmpdir.remove().unwrap()
 }
