@@ -274,28 +274,12 @@ enum State<T : PartialEq + Clone + Debug> {
     SequentialRemoves(Option<Hunk<T>>, Vec<DiffResult<T>>),
 }
 
-pub fn display_diff_hunked<T>(
-    out : &mut Write,
-    conf : &Conf,
-    old_lines : &[T],
-    new_lines : &[T],
-    diff : Vec<DiffResult<T>>) -> io::Result<i32>
+fn setup_initial_state<T>(diff : Option<DiffResult<T>>) -> State<T>
 where T : PartialEq + Clone + Debug,
-Hunk<T> : DisplayableHunk<DiffItem=T>
+    Hunk<T> : DisplayableHunk<DiffItem=T>
 {
     use self::State::*;
-    let mut dump_hunk = |hunk : Option<&Hunk<T>>| {
-        match hunk {
-            None => Ok (()),
-            Some (hunk) => {
-                hunk.do_write(conf, old_lines , new_lines, out)
-            }
-        }
-    };
-    let mut diff_results = diff.into_iter();
-    // If the first diff result is an add or a remove, we need
-    // to manually note down the start line in the hunk
-    let mut state = match diff_results.next() {
+    match diff {
         None => panic!("No differences at all, shouldn't have been called"),
         Some (d) => {
             match d {
@@ -314,119 +298,17 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                 },
             }
         }
-    };
-
-    for d in diff_results {
-        dprintln!(conf.debug, "state = {:?}", state);
-        dprintln!(conf.debug, "processing diff result: {:?}", d);
-        state = match state {
-            CollectingAdds(mut hunk, mut adds) => {
-                match d {
-                    DiffResult::Added(_) => {
-                        adds.push(d);
-                        CollectingAdds(hunk, adds) // Still collecting adds
-                    },
-                    DiffResult::Removed(_) => {
-                        append(&mut hunk, d);
-                        // Change states, holding on to the pending adds
-                        SequentialRemoves(hunk, adds)
-                    },
-                    DiffResult::Common(_) => {
-                        // No adjacent removes, time to print out the adds
-                        consume(&mut hunk, &mut adds.drain(..));
-                        let mut commons = VecDeque::new();
-                        commons.push_back(d);
-                        // We've just seen a change; this needs to be followed by
-                        // some context items.
-                        CollectingCommonsCorked(hunk, commons)
-                    },
-                }
-            },
-            CollectingCommonsTail(mut hunk, seen, mut commons) => {
-                match d {
-                    // If the state changes, print out the last N items, possibly
-                    // preceeded by a header
-                    DiffResult::Added(_) => {
-                        if seen > conf.context {
-                            dump_hunk(hunk.as_ref())?;
-                            hunk = None
-                        }
-                        consume(&mut hunk, &mut commons.drain(..));
-                        CollectingAdds(hunk, vec![d])
-                    },
-                    DiffResult::Removed(_) => {
-                        if seen > conf.context {
-                            dump_hunk(hunk.as_ref())?;
-                            hunk = None
-                        }
-                        consume(&mut hunk, &mut commons.drain(..));
-                        append(&mut hunk, d);
-                        SequentialRemoves(hunk, vec![])
-                    },
-                    DiffResult::Common(_) => {
-                        if seen > conf.context {
-                            dump_hunk(hunk.as_ref())?;
-                            hunk = None
-                        }
-                        commons.push_back(d);
-                        if commons.len() > conf.context {
-                            commons.pop_front();
-                        }
-                        CollectingCommonsTail(hunk, seen + 1, commons)
-                    },
-                }
-            },
-            CollectingCommonsCorked(mut hunk, mut commons) => {
-                match d {
-                    // State change -> print collected common items
-                    DiffResult::Added(_) => {
-                        consume(&mut hunk, &mut commons.drain(..));
-                        CollectingAdds(hunk, vec![d])
-                    },
-                    DiffResult::Removed(_) => {
-                        consume(&mut hunk, &mut commons.drain(..));
-                        append(&mut hunk, d);
-                        SequentialRemoves(hunk, vec![])
-                    },
-                    DiffResult::Common(_) => {
-                        if commons.len() == conf.context {
-                            // We've accumulated $context common items after
-                            // a change; print out the hunk, then start collecting
-                            // common items to print _before_ the next change.
-                            consume(&mut hunk, &mut commons.drain(..));
-                            commons.push_back(d);
-                            CollectingCommonsTail(hunk, 1, commons)
-                        } else {
-                            commons.push_back(d);
-                            CollectingCommonsCorked(hunk, commons)
-                        }
-                    },
-                }
-            },
-            SequentialRemoves(mut hunk, mut adds) => {
-                match d {
-                    // State change -> time to print out the pending adds
-                    DiffResult::Added(_) => {
-                        consume(&mut hunk, &mut adds.drain(..));
-                        CollectingAdds(hunk, vec![d])
-                    },
-                    DiffResult::Removed(_) => {
-                        // Simply print out the remove
-                        append(&mut hunk, d);
-                        SequentialRemoves(hunk, adds)
-                    },
-                    DiffResult::Common(_) => {
-                        consume(&mut hunk, &mut adds.drain(..));
-                        let mut commons = VecDeque::new();
-                        // XXX: handle context = 0
-                        commons.push_back(d);
-                        CollectingCommonsCorked(hunk, commons)
-                    },
-                }
-
-            },
-        }
     }
+}
+
+fn handle_final_state<T>(conf : &Conf,
+                         dump_hunk : &mut FnMut(Option<&Hunk<T>>) ->
+                         io::Result<()>,
+                         state : State<T>) -> io::Result<()>
+where T : PartialEq + Clone + Debug,
+Hunk<T> : DisplayableHunk<DiffItem=T>
+{
+    use self::State::*;
     dprintln!(conf.debug, "Handling final state: {:?}", state);
     // Cleanup
     let hunk = match state {
@@ -452,6 +334,153 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
             hunk
         }
     };
-    dump_hunk(hunk.as_ref())?;
+    dump_hunk(hunk.as_ref())
+}
+
+fn fsm<T>(conf : &Conf,
+          dump_hunk : &mut FnMut(Option<&Hunk<T>>) -> io::Result<()>,
+          state : State<T>, d : DiffResult<T>) -> io::Result<State<T>>
+where T : PartialEq + Clone + Debug,
+Hunk<T> : DisplayableHunk<DiffItem=T>
+{
+    use self::State::*;
+    let state = match state {
+        CollectingAdds(mut hunk, mut adds) => {
+            match d {
+                DiffResult::Added(_) => {
+                    adds.push(d);
+                    CollectingAdds(hunk, adds) // Still collecting adds
+                },
+                DiffResult::Removed(_) => {
+                    append(&mut hunk, d);
+                    // Change states, holding on to the pending adds
+                    SequentialRemoves(hunk, adds)
+                },
+                DiffResult::Common(_) => {
+                    // No adjacent removes, time to print out the adds
+                    consume(&mut hunk, &mut adds.drain(..));
+                    let mut commons = VecDeque::new();
+                    commons.push_back(d);
+                    // We've just seen a change; this needs to be followed by
+                    // some context items.
+                    CollectingCommonsCorked(hunk, commons)
+                },
+            }
+        },
+        CollectingCommonsTail(mut hunk, seen, mut commons) => {
+            match d {
+                // If the state changes, print out the last N items, possibly
+                // preceeded by a header
+                DiffResult::Added(_) => {
+                    if seen > conf.context {
+                        dump_hunk(hunk.as_ref())?;
+                        hunk = None
+                    }
+                    consume(&mut hunk, &mut commons.drain(..));
+                    CollectingAdds(hunk, vec![d])
+                },
+                DiffResult::Removed(_) => {
+                    if seen > conf.context {
+                        dump_hunk(hunk.as_ref())?;
+                        hunk = None
+                    }
+                    consume(&mut hunk, &mut commons.drain(..));
+                    append(&mut hunk, d);
+                    SequentialRemoves(hunk, vec![])
+                },
+                DiffResult::Common(_) => {
+                    if seen > conf.context {
+                        dump_hunk(hunk.as_ref())?;
+                        hunk = None
+                    }
+                    commons.push_back(d);
+                    if commons.len() > conf.context {
+                        commons.pop_front();
+                    }
+                    CollectingCommonsTail(hunk, seen + 1, commons)
+                },
+            }
+        },
+        CollectingCommonsCorked(mut hunk, mut commons) => {
+            match d {
+                // State change -> print collected common items
+                DiffResult::Added(_) => {
+                    consume(&mut hunk, &mut commons.drain(..));
+                    CollectingAdds(hunk, vec![d])
+                },
+                DiffResult::Removed(_) => {
+                    consume(&mut hunk, &mut commons.drain(..));
+                    append(&mut hunk, d);
+                    SequentialRemoves(hunk, vec![])
+                },
+                DiffResult::Common(_) => {
+                    if commons.len() == conf.context {
+                        // We've accumulated $context common items after
+                        // a change; print out the hunk, then start collecting
+                        // common items to print _before_ the next change.
+                        consume(&mut hunk, &mut commons.drain(..));
+                        commons.push_back(d);
+                        CollectingCommonsTail(hunk, 1, commons)
+                    } else {
+                        commons.push_back(d);
+                        CollectingCommonsCorked(hunk, commons)
+                    }
+                },
+            }
+        },
+        SequentialRemoves(mut hunk, mut adds) => {
+            match d {
+                // State change -> time to print out the pending adds
+                DiffResult::Added(_) => {
+                    consume(&mut hunk, &mut adds.drain(..));
+                    CollectingAdds(hunk, vec![d])
+                },
+                DiffResult::Removed(_) => {
+                    // Simply print out the remove
+                    append(&mut hunk, d);
+                    SequentialRemoves(hunk, adds)
+                },
+                DiffResult::Common(_) => {
+                    consume(&mut hunk, &mut adds.drain(..));
+                    let mut commons = VecDeque::new();
+                    // XXX: handle context = 0
+                    commons.push_back(d);
+                    CollectingCommonsCorked(hunk, commons)
+                },
+            }
+
+        },
+    };
+    Ok (state)
+}
+
+pub fn display_diff_hunked<T>(
+    out : &mut Write,
+    conf : &Conf,
+    old_lines : &[T],
+    new_lines : &[T],
+    diff : Vec<DiffResult<T>>) -> io::Result<i32>
+where T : PartialEq + Clone + Debug,
+Hunk<T> : DisplayableHunk<DiffItem=T>
+{
+    let mut dump_hunk = |hunk : Option<&Hunk<T>>| {
+        match hunk {
+            None => Ok (()),
+            Some (hunk) => {
+                hunk.do_write(conf, old_lines , new_lines, out)
+            }
+        }
+    };
+    let mut diff_results = diff.into_iter();
+    // If the first diff result is an add or a remove, we need
+    // to manually note down the start line in the hunk
+    let mut state = setup_initial_state(diff_results.next());
+
+    for d in diff_results {
+        dprintln!(conf.debug, "state = {:?}", state);
+        dprintln!(conf.debug, "processing diff result: {:?}", d);
+        state = fsm(conf, &mut dump_hunk, state, d)?;
+    }
+    handle_final_state(conf, &mut dump_hunk, state)?;
     Ok (1)
 }
