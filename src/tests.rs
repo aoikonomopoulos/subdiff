@@ -55,8 +55,8 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
 #[test]
 fn combos_against_diff() {
     let conf = Conf {
-        context: 1,
-        debug : false,
+        context: 0,
+        debug : true,
         ..Conf::default()
     };
     let lines : Vec<&str>

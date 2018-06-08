@@ -274,6 +274,16 @@ enum State<T : PartialEq + Clone + Debug> {
     SequentialRemoves(Option<Hunk<T>>, Vec<DiffResult<T>>),
 }
 
+// struct FSM<T>
+// where T : PartialEq + Clone + Debug + 't,
+// Hunk<T> : DisplayableHunk<DiffItem=T> {
+//     setup : &'static Fn(Option<DiffResult<T>>) -> State<T>,
+//     fsm : &'static Fn(&Conf, &mut FnMut(Option<&Hunk<T>>) -> io::Result<()>,
+//              State<T>, DiffResult<T>) -> io::Result<State<T>>,
+//     handle_final : &'static Fn(&Conf, &mut FnMut(Option<&Hunk<T>>) -> io::Result<()>,
+//                       State<T>) -> io::Result<()>,
+// }
+
 fn setup_initial_state<T>(diff : Option<DiffResult<T>>) -> State<T>
 where T : PartialEq + Clone + Debug,
     Hunk<T> : DisplayableHunk<DiffItem=T>
@@ -454,6 +464,81 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
     Ok (state)
 }
 
+fn setup_initial_state_nocontext<T>(diff : Option<DiffResult<T>>) -> State<T>
+where T : PartialEq + Clone + Debug,
+    Hunk<T> : DisplayableHunk<DiffItem=T>
+{
+    use self::State::*;
+    match diff {
+        None => panic!("No differences at all, shouldn't have been called"),
+        Some (d) => {
+            match d {
+                DiffResult::Common(_) => {
+                    let mut h = Hunk::initial();
+                    SequentialRemoves(Some (h), vec![])
+                },
+                DiffResult::Added(_) => {
+                    CollectingAdds(Some (<Hunk<T>>::initial()), vec![d])
+                },
+                DiffResult::Removed(_) => {
+                    let mut h = Hunk::initial();
+                    h.append(d);
+                    SequentialRemoves(Some (h), vec![])
+                },
+            }
+        }
+    }
+}
+
+fn fsm_nocontext<T>(_conf : &Conf,
+          dump_hunk : &mut FnMut(Option<&Hunk<T>>) -> io::Result<()>,
+          state : State<T>, d : DiffResult<T>) -> io::Result<State<T>>
+where T : PartialEq + Clone + Debug,
+Hunk<T> : DisplayableHunk<DiffItem=T>
+{
+    use self::State::*;
+    let state = match state {
+        CollectingAdds(mut hunk, mut adds) => {
+            match d {
+                DiffResult::Added(_) => {
+                    adds.push(d);
+                    CollectingAdds(hunk, adds)
+                },
+                DiffResult::Removed(_) => {
+                    append(&mut hunk, d);
+                    SequentialRemoves(hunk, adds)
+                },
+                DiffResult::Common(_) => {
+                    consume(&mut hunk, &mut adds.drain(..));
+                    dump_hunk(hunk.as_ref())?;
+                    SequentialRemoves(None, vec![])
+                },
+            }
+        },
+        SequentialRemoves(mut hunk, mut adds) => {
+            match d {
+                DiffResult::Added(_) => {
+                    consume(&mut hunk, &mut adds.drain(..));
+                    CollectingAdds(hunk, vec![d])
+                },
+                DiffResult::Removed(_) => {
+                    append(&mut hunk, d);
+                    SequentialRemoves(hunk, adds)
+                },
+                DiffResult::Common(_) => {
+                    consume(&mut hunk, &mut adds.drain(..));
+                    dump_hunk(hunk.as_ref())?;
+                    SequentialRemoves(None, vec![])
+                },
+            }
+        },
+        CollectingCommonsCorked (_, _) | CollectingCommonsTail (_, _, _) => {
+            panic!("Got CollectingCommons* in no-context")
+        }
+    };
+    Ok (state)
+}
+
 pub fn display_diff_hunked<T>(
     out : &mut Write,
     conf : &Conf,
@@ -474,12 +559,20 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
     let mut diff_results = diff.into_iter();
     // If the first diff result is an add or a remove, we need
     // to manually note down the start line in the hunk
-    let mut state = setup_initial_state(diff_results.next());
+    let mut state = if conf.context > 0 {
+        setup_initial_state(diff_results.next())
+    } else {
+        setup_initial_state_nocontext(diff_results.next())
+    };
 
     for d in diff_results {
         dprintln!(conf.debug, "state = {:?}", state);
         dprintln!(conf.debug, "processing diff result: {:?}", d);
-        state = fsm(conf, &mut dump_hunk, state, d)?;
+        state = if conf.context > 0 {
+            fsm(conf, &mut dump_hunk, state, d)?
+        } else {
+            fsm_nocontext(conf, &mut dump_hunk, state, d)?
+        };
     }
     handle_final_state(conf, &mut dump_hunk, state)?;
     Ok (1)
