@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use std::fmt::Debug;
 use std::collections::VecDeque;
 use super::lcs_diff;
-use super::lcs_diff::DiffResult;
+use super::lcs_diff::{DiffResult, DiffElement};
 use super::conf::{Conf, ContextLineFormat};
 use super::wdiff::*;
 
@@ -63,19 +63,16 @@ impl<T: PartialEq + Clone> Hunk<T> {
         }
     }
     fn append(&mut self, d : DiffResult<T>) {
-        match diff_offsets(&d){
-            (Some (_), Some (_)) => { // Common
+        match d {
+            DiffResult::Common (_) => {
                 self.old_len += 1;
                 self.new_len += 1;
             },
-            (Some (_), None) => { // Removal
+            DiffResult::Removed (_) => {
                 self.old_len += 1;
             },
-            (None, Some (_)) => { // Addition
+            DiffResult::Added (_) => {
                 self.new_len += 1;
-            },
-            _ => {
-                panic!("DiffElement with neither side")
             },
         };
         self.items.push(d)
@@ -176,12 +173,13 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
             }
         }
         for d in &self.items {
-            match diff_offsets(d) {
-                (Some (o), Some (n)) => {
-                    let diff = lcs_diff::diff::<u8>(&old_lines[o][..], &new_lines[n][..]);
+            match d {
+                DiffResult::Common (DiffElement { old_index : Some (o), new_index : Some (n), ..}) => {
+//                (Some (o), Some (n)) => {
+                    let diff = lcs_diff::diff::<u8>(&old_lines[*o][..], &new_lines[*n][..]);
                     if !super::exist_differences(&diff) {
                         out.write_all(b" ")?;
-                        out.write_all(&old_lines[o][..])?;
+                        out.write_all(&old_lines[*o][..])?;
                     } else {
                         let pref = if conf.mark_changed_context {
                             b"!"
@@ -191,14 +189,15 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                         out.write_all(pref)?;
                         let conf = Conf {context: 1000, ..conf.clone()};
                         display_diff_hunked::<u8>(out, &conf,
-                                                   &old_lines[o][..],
-                                                   &new_lines[n][..], diff)?;
+                                                   &old_lines[*o][..],
+                                                   &new_lines[*n][..], diff)?;
                     }
                 },
-                (Some (o), None) => {
+                DiffResult::Removed (DiffElement { old_index : Some (o), ..}) => {
+//                (Some (o), None) => {
                     out.write_all(b"-")?;
-                    out.write_all(&old_lines[o][..])?;
-                    if o == (old_lines.len() - 1) {
+                    out.write_all(&old_lines[*o][..])?;
+                    if *o == (old_lines.len() - 1) {
                         match (last_removed_nl, last_added_nl) {
                             (Some (o_has_nl), Some (n_has_nl)) => {
                                 if !o_has_nl && n_has_nl {
@@ -212,10 +211,11 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                         }
                     }
                 },
-                (None, Some (n)) => {
+                DiffResult::Added (DiffElement { new_index : Some (n), ..}) => {
+//                (None, Some (n)) => {
                     out.write_all(b"+")?;
-                    out.write_all(&new_lines[n][..])?;
-                    if n == (new_lines.len() - 1) {
+                    out.write_all(&new_lines[*n][..])?;
+                    if *n == (new_lines.len() - 1) {
                         match (last_removed_nl, last_added_nl) {
                             (Some (o_has_nl), Some (n_has_nl)) => {
                                 if o_has_nl && !n_has_nl {
