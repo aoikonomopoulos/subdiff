@@ -22,6 +22,53 @@ fn diff_offsets<T : PartialEq + Clone>(d : &DiffResult<T>) -> (Option<usize>, Op
     }
 }
 
+#[derive(Debug)]
+struct FileOffsets {
+    pub old_off : usize,
+    pub new_off : usize,
+}
+
+impl FileOffsets {
+    fn observe<T: PartialEq + Clone>(&mut self, d : &DiffResult<T>) {
+        match d {
+            DiffResult::Common (_) => {
+                self.old_off += 1;
+                self.new_off += 1;
+            },
+            DiffResult::Added (_) => self.new_off += 1,
+            DiffResult::Removed(_) => self.old_off += 1,
+        }
+    }
+}
+
+// Here we reuse the None fields of a DiffResult to store our own data.
+// The issue is that, when we create a hunk that has no preceeding
+// context (because the user wanted 0 context lines), we don't have
+// the line information for where the hunk starts in one of the two files.
+//
+// For example, say the hunk only contains a single addition; we have the
+// offset in the new file (.new_index) but not in the old file. What's more,
+// as we have to reorder the lines, we can't just use the FileOffsets directly.
+//
+// Instead, we keep track of the offset of the other file in the unused index
+// field of Added/Removed elements.
+fn update_indices<T : PartialEq + Clone>(d : &mut DiffResult<T>, offsets : &FileOffsets) {
+    match d {
+        DiffResult::Added (el) => {
+            assert_eq!(el.new_index, Some (offsets.new_off));
+            el.old_index = Some (offsets.old_off);
+        },
+        DiffResult::Removed (el) => {
+            assert_eq!(el.old_index, Some (offsets.old_off));
+            el.new_index = Some (offsets.new_off);
+        },
+        DiffResult::Common (el) => {
+            assert_eq!(el.old_index, Some (offsets.old_off));
+            assert_eq!(el.new_index, Some (offsets.new_off));
+        },
+    }
+}
+
 // The main difficulty in imitating diff's output is that the hunk header
 // includes the length of the hunk, so we have to buffer our output and
 // only print it out when we know the current hunk has ended. This saves
@@ -46,21 +93,22 @@ impl<T: PartialEq + Clone> Hunk<T> {
             items : vec![]
         }
     }
-    fn from_diff(d : DiffResult<T>) -> Hunk<T> {
-        match diff_offsets(&d) {
+    fn from_diff(d : &DiffResult<T>) -> Hunk<T> {
+        let h = match diff_offsets(d) {
             (Some (o), Some (n)) => {
                 Hunk {
                     old_start : o,
-                    old_len : 1,
+                    old_len : 0,
                     new_start : n,
-                    new_len : 1,
-                    items : vec![d],
+                    new_len : 0,
+                    items : vec![],
                 }
             },
             _ => {
                 panic!("Can currently ony start a hunk from a common element")
             },
-        }
+        };
+        h
     }
     fn append(&mut self, d : DiffResult<T>) {
         match d {
@@ -74,6 +122,18 @@ impl<T: PartialEq + Clone> Hunk<T> {
             DiffResult::Added (_) => {
                 self.new_len += 1;
             },
+        };
+        // Since we might reorder added/removed lines, it might be that
+        // the earliest offset will appear as part of a later addition
+        // to the hunk.
+        let (old_off, new_off) = diff_offsets(&d);
+        match old_off {
+            Some (o) if o < self.old_start => self.old_start = o,
+            _ => (),
+        };
+        match new_off {
+            Some (n) if n < self.new_start => self.new_start = n,
+            _ => (),
         };
         self.items.push(d)
     }
@@ -102,9 +162,12 @@ fn write_off_len(out : &mut Write,
                  off : usize, len : usize) -> io::Result<()> {
     // Special case galore: if the file is empty, its (offset, len) in
     // the hunk header has to be 0,0.
-    if off == 0 && lines.is_empty() {
-        write!(out, "0,0")?;
+    if len == 0 {
+        write!(out, "{},0", off)?;
         return Ok (())
+    // if off == 0 && lines.is_empty() {
+    //     write!(out, "0,0")?;
+    //     return Ok (())
     } else {
         write!(out, "{}", off + 1)?;
     }
@@ -237,10 +300,8 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
 }
 
 fn append<T: PartialEq + Clone>(hunk : &mut Option<Hunk<T>>, d : DiffResult<T>) {
-    match hunk {
-        None => {hunk.get_or_insert_with(|| Hunk::from_diff(d));},
-        Some (h) => h.append(d),
-    }
+    let mut h = hunk.get_or_insert_with(|| Hunk::from_diff(&d));
+    h.append(d)
 }
 
 fn consume<T : PartialEq + Clone>(hunk : &mut Option<Hunk<T>>,
@@ -284,30 +345,25 @@ enum State<T : PartialEq + Clone + Debug> {
 //                       State<T>) -> io::Result<()>,
 // }
 
-fn setup_initial_state<T>(diff : Option<DiffResult<T>>) -> State<T>
+fn setup_initial_state<T>(d : DiffResult<T>) -> State<T>
 where T : PartialEq + Clone + Debug,
     Hunk<T> : DisplayableHunk<DiffItem=T>
 {
     use self::State::*;
-    match diff {
-        None => panic!("No differences at all, shouldn't have been called"),
-        Some (d) => {
-            match d {
-                DiffResult::Common(_) => {
-                    let mut commons = VecDeque::new();
-                    commons.push_back(d);
-                    CollectingCommonsTail(None, 1, commons)
-                },
-                DiffResult::Added(_) => {
-                    CollectingAdds(Some (<Hunk<T>>::initial()), vec![d])
-                },
-                DiffResult::Removed(_) => {
-                    let mut h = Hunk::initial();
-                    h.append(d);
-                    SequentialRemoves(Some (h), vec![])
-                },
-            }
-        }
+    match d {
+        DiffResult::Common(_) => {
+            let mut commons = VecDeque::new();
+            commons.push_back(d);
+            CollectingCommonsTail(None, 1, commons)
+        },
+        DiffResult::Added(_) => {
+            CollectingAdds(Some (<Hunk<T>>::initial()), vec![d])
+        },
+        DiffResult::Removed(_) => {
+            let mut h = Hunk::initial();
+            h.append(d);
+            SequentialRemoves(Some (h), vec![])
+        },
     }
 }
 
@@ -344,6 +400,7 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
             hunk
         }
     };
+    dprintln!(conf.debug, "Final hunk: {:?}", hunk);
     dump_hunk(hunk.as_ref())
 }
 
@@ -464,29 +521,26 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
     Ok (state)
 }
 
-fn setup_initial_state_nocontext<T>(diff : Option<DiffResult<T>>) -> State<T>
+fn setup_initial_state_nocontext<T>(d : DiffResult<T>) -> State<T>
 where T : PartialEq + Clone + Debug,
     Hunk<T> : DisplayableHunk<DiffItem=T>
 {
     use self::State::*;
-    match diff {
-        None => panic!("No differences at all, shouldn't have been called"),
-        Some (d) => {
-            match d {
-                DiffResult::Common(_) => {
-                    let mut h = Hunk::initial();
-                    SequentialRemoves(Some (h), vec![])
-                },
-                DiffResult::Added(_) => {
-                    CollectingAdds(Some (<Hunk<T>>::initial()), vec![d])
-                },
-                DiffResult::Removed(_) => {
-                    let mut h = Hunk::initial();
-                    h.append(d);
-                    SequentialRemoves(Some (h), vec![])
-                },
-            }
-        }
+    match d {
+        DiffResult::Common(_) => {
+            // This line will not be part of a hunk, so can't create
+            // the hunk yet (we can't set its starting offsets).
+            SequentialRemoves(None, vec![])
+        },
+        DiffResult::Added(_) => {
+            let h = Hunk::from_diff(&d);
+            CollectingAdds(Some (h), vec![d])
+        },
+        DiffResult::Removed(_) => {
+            let mut h = Hunk::from_diff(&d);
+            h.append(d);
+            SequentialRemoves(Some (h), vec![])
+        },
     }
 }
 
@@ -548,6 +602,10 @@ pub fn display_diff_hunked<T>(
 where T : PartialEq + Clone + Debug,
 Hunk<T> : DisplayableHunk<DiffItem=T>
 {
+    let mut offsets = FileOffsets {
+        old_off : 0,
+        new_off : 0,
+    };
     let mut dump_hunk = |hunk : Option<&Hunk<T>>| {
         match hunk {
             None => Ok (()),
@@ -557,23 +615,33 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
         }
     };
     let mut diff_results = diff.into_iter();
+    let mut first_diff = match diff_results.next() {
+        Some (d) => d,
+        None => panic!("No differences at all, shouldn't have been called"),
+    };
+    dprintln!(conf.debug, "first diff: {:?}", first_diff);
+    update_indices(&mut first_diff, &offsets);
+    offsets.observe(&first_diff);
     // If the first diff result is an add or a remove, we need
     // to manually note down the start line in the hunk
     let mut state = if conf.context > 0 {
-        setup_initial_state(diff_results.next())
+        setup_initial_state(first_diff)
     } else {
-        setup_initial_state_nocontext(diff_results.next())
+        setup_initial_state_nocontext(first_diff)
     };
 
-    for d in diff_results {
-        dprintln!(conf.debug, "state = {:?}", state);
+    for mut d in diff_results {
+        dprintln!(conf.debug, "offsets: {:?}, state = {:?}", offsets, state);
         dprintln!(conf.debug, "processing diff result: {:?}", d);
+        update_indices(&mut d, &offsets);
+        offsets.observe(&d);
         state = if conf.context > 0 {
             fsm(conf, &mut dump_hunk, state, d)?
         } else {
             fsm_nocontext(conf, &mut dump_hunk, state, d)?
         };
     }
+    dprintln!(conf.debug, "offsets[before final]: {:?}", offsets);
     handle_final_state(conf, &mut dump_hunk, state)?;
     Ok (1)
 }
