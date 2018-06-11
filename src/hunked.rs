@@ -160,14 +160,11 @@ impl DisplayableHunk for Hunk<u8> {
 fn write_off_len(out : &mut Write,
                  lines : &[Vec<u8>],
                  off : usize, len : usize) -> io::Result<()> {
-    // Special case galore: if the file is empty, its (offset, len) in
-    // the hunk header has to be 0,0.
+    // Special case galore: if the len is zero, the line offset is that
+    // of the previous line.
     if len == 0 {
         write!(out, "{},0", off)?;
         return Ok (())
-    // if off == 0 && lines.is_empty() {
-    //     write!(out, "0,0")?;
-    //     return Ok (())
     } else {
         write!(out, "{}", off + 1)?;
     }
