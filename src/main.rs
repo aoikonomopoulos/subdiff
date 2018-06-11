@@ -6,6 +6,8 @@ extern crate itertools;
 extern crate temporary;
 extern crate clap;
 extern crate regex;
+#[cfg(test)]
+extern crate rayon;
 
 use self::lcs_diff::*;
 use std::io;

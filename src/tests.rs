@@ -52,33 +52,46 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
     }
 }
 
+fn do_chunk(conf : &Conf, idx : usize, chunk : &[(usize, usize)], lines : &[&str]) {
+    let tmpdir = temporary::Directory::new("diff-test").unwrap();
+    let mut cnt = 0;
+    for (i, j) in chunk {
+        let combos1 : Vec<Vec<&str>> = lines.iter().cloned().combinations(*i).collect();
+        let combos2 : Vec<Vec<&str>> = lines.iter().cloned().combinations(*j).collect();
+        let prod = iproduct!(combos1, combos2);
+        for p in prod {
+            // Testing is deterministic, this helps with being
+            // able to tell if a failing test is now succeeding
+            dprintln!(conf.debug, "Testing combo ({}, {})", idx, cnt);
+            test_diff(&conf, &tmpdir, &p.0, &p.1);
+            cnt += 1
+        }
+    }
+    tmpdir.remove().unwrap()
+}
+
 #[test]
 fn combos_against_diff() {
     let conf = Conf {
-        context: 0,
-        debug : true,
+        context: 1,
+        debug : false,
         ..Conf::default()
     };
     let lines : Vec<&str>
         = vec!["a\n", "b\n", "c\n", "d\n", "e\n", "f\n", "g\n", "h\n", "i\n", "j\n"];
 
-    let tmpdir = temporary::Directory::new("diff-test").unwrap();
     let mut cnt = 0;
-    for i in 0..6 {
-        for j in 0..6 {
-            let combos1 : Vec<Vec<&str>> = lines.iter().cloned().combinations(i).collect();
-            let combos2 : Vec<Vec<&str>> = lines.iter().cloned().combinations(j).collect();
-            let prod = iproduct!(combos1, combos2);
-            for p in prod {
-                // Testing is deterministic, this helps with being
-                // able to tell if a failing test is now succeeding
-                dprintln!(conf.debug, "Testing combo #{}", cnt);
-                test_diff(&conf, &tmpdir, &p.0, &p.1);
-                cnt += 1
-            }
+    let prod : Vec<(usize, usize)> = iproduct!(0..6, 0..6).collect();
+    rayon::scope(|s| {
+        for chunk in prod.chunks(2) {
+            let lines = &lines;
+            let conf = &conf;
+            s.spawn(move |_| {
+                do_chunk(conf, cnt, chunk, lines)
+            });
+            cnt += 1
         }
-    }
-    tmpdir.remove().unwrap()
+    });
 }
 
 fn do_wdiff(s1 : &str, s2 : &str, out : &mut Write) {

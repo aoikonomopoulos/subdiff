@@ -238,7 +238,6 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
         for d in &self.items {
             match d {
                 DiffResult::Common (DiffElement { old_index : Some (o), new_index : Some (n), ..}) => {
-//                (Some (o), Some (n)) => {
                     let diff = lcs_diff::diff::<u8>(&old_lines[*o][..], &new_lines[*n][..]);
                     if !super::exist_differences(&diff) {
                         out.write_all(b" ")?;
@@ -257,7 +256,6 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                     }
                 },
                 DiffResult::Removed (DiffElement { old_index : Some (o), ..}) => {
-//                (Some (o), None) => {
                     out.write_all(b"-")?;
                     out.write_all(&old_lines[*o][..])?;
                     if *o == (old_lines.len() - 1) {
@@ -275,7 +273,6 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                     }
                 },
                 DiffResult::Added (DiffElement { new_index : Some (n), ..}) => {
-//                (None, Some (n)) => {
                     out.write_all(b"+")?;
                     out.write_all(&new_lines[*n][..])?;
                     if *n == (new_lines.len() - 1) {
@@ -510,7 +507,6 @@ Hunk<T> : DisplayableHunk<DiffItem=T>
                 DiffResult::Common(_) => {
                     consume(&mut hunk, &mut adds.drain(..));
                     let mut commons = VecDeque::new();
-                    // XXX: handle context = 0
                     commons.push_back(d);
                     CollectingCommonsCorked(hunk, commons)
                 },
