@@ -326,16 +326,6 @@ enum State<T : PartialEq + Clone + Debug> {
     SequentialRemoves(Option<Hunk<T>>, Vec<DiffResult<T>>),
 }
 
-// struct FSM<T>
-// where T : PartialEq + Clone + Debug + 't,
-// Hunk<T> : DisplayableHunk<DiffItem=T> {
-//     setup : &'static Fn(Option<DiffResult<T>>) -> State<T>,
-//     fsm : &'static Fn(&Conf, &mut FnMut(Option<&Hunk<T>>) -> io::Result<()>,
-//              State<T>, DiffResult<T>) -> io::Result<State<T>>,
-//     handle_final : &'static Fn(&Conf, &mut FnMut(Option<&Hunk<T>>) -> io::Result<()>,
-//                       State<T>) -> io::Result<()>,
-// }
-
 fn setup_initial_state<T>(d : DiffResult<T>) -> State<T>
 where T : PartialEq + Clone + Debug,
     Hunk<T> : DisplayableHunk<DiffItem=T>
