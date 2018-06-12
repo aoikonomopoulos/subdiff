@@ -85,11 +85,13 @@ fn combos_against_diff() {
     rayon::scope(|s| {
         for chunk in prod.chunks(2) {
             let lines = &lines;
-            let conf = &conf;
-            s.spawn(move |_| {
-                do_chunk(conf, cnt, chunk, lines)
-            });
-            cnt += 1
+            for context in 0..2 {
+                let conf = Conf {context, ..conf};
+                s.spawn(move |_| {
+                    do_chunk(&conf, cnt, chunk, lines)
+                });
+                cnt += 1
+            }
         }
     });
 }
