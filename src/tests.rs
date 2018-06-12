@@ -139,14 +139,7 @@ fn context_wdiff() {
     check_wdiff("abcd", "aefd", "a-{bc}+{ef}d");
 }
 
-// XFAIL: we need to implement proper EOF-without-newline handling,
-// both for regular operation and for --display-sub.
-#[test]
-fn newline_at_eof_handling() {
-    let conf = Conf {
-        debug : false,
-        ..Conf::default()
-    };
+fn do_newline_at_eof(conf : &Conf) {
     let tmpdir = temporary::Directory::new("newline-at-eof").unwrap();
 
     // Both files end w/o a newline.
@@ -164,4 +157,16 @@ fn newline_at_eof_handling() {
     // Test earlier printing of no-newline message.
     test_diff(&conf, &tmpdir, &["a\n", "b\n", "c\n", "d\n", "e\n", "f"], &["a\n"]);
     test_diff(&conf, &tmpdir, &["a\n"], &["a\n", "b\n", "c\n", "d\n", "e\n", "f"]);
+    tmpdir.remove().unwrap()
+}
+#[test]
+fn newline_at_eof_handling() {
+    for context in 0..2 {
+        let conf = Conf {
+            debug : false,
+            context,
+            ..Conf::default()
+        };
+        do_newline_at_eof(&conf)
+    }
 }
