@@ -243,7 +243,7 @@ fn diff_files(out : &mut Write, conf : &Conf, re : Option<Values>,
             let pick_old = pick_lines(conf, &*mre, &old_lines);
             let pick_new = pick_lines(conf, &*mre, &new_lines);
             let d = lcs_diff::diff(&pick_old, &pick_new);
-            if conf.display_sub {
+            if conf.display_selected {
                 // If the user requested that only the matching parts
                 // be produced as output, reference the those parts
                 // as the lines of the original files
@@ -308,9 +308,9 @@ fn main() {
              .long("mark-changed-context")
              .takes_value(false)
              .help("Mark changed context lines with '!'"))
-        .arg(Arg::with_name("display_sub")
+        .arg(Arg::with_name("display_selected")
              .required(false)
-             .long("display-sub")
+             .long("display-selected")
              .takes_value(false)
              // This is mostly to make it easy to debug the RE
              .help("Display diff of selected substrings"))
@@ -320,7 +320,7 @@ fn main() {
     let conf = Conf {
         context,
         mark_changed_context : matches.is_present("mark_changed_context"),
-        display_sub : matches.is_present("display_sub"),
+        display_selected : matches.is_present("display_selected"),
         ..Conf::default()
     };
     let conf = match matches.value_of("context_format") {

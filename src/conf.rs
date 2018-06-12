@@ -32,7 +32,7 @@ pub struct Conf {
     pub context : usize,
     pub mark_changed_context: bool,
     pub context_format: ContextLineFormat,
-    pub display_sub: bool,
+    pub display_selected: bool,
 }
 
 impl Conf {
@@ -42,7 +42,7 @@ impl Conf {
             context : 3,
             mark_changed_context : false,
             context_format : ContextLineFormat::Wdiff,
-            display_sub : false,
+            display_selected : false,
         }
     }
 }
