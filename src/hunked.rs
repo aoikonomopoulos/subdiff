@@ -94,7 +94,7 @@ impl<T: PartialEq + Clone> Hunk<T> {
         }
     }
     fn from_diff(d : &DiffResult<T>) -> Hunk<T> {
-        let h = match diff_offsets(d) {
+        match diff_offsets(d) {
             (Some (o), Some (n)) => {
                 Hunk {
                     old_start : o,
@@ -107,8 +107,7 @@ impl<T: PartialEq + Clone> Hunk<T> {
             _ => {
                 panic!("Can currently ony start a hunk from a common element")
             },
-        };
-        h
+        }
     }
     fn append(&mut self, d : DiffResult<T>) {
         match d {
@@ -158,7 +157,6 @@ impl DisplayableHunk for Hunk<u8> {
 }
 
 fn write_off_len(out : &mut Write,
-                 lines : &[Vec<u8>],
                  off : usize, len : usize) -> io::Result<()> {
     // Special case galore: if the len is zero, the line offset is that
     // of the previous line.
@@ -177,13 +175,12 @@ fn write_off_len(out : &mut Write,
 }
 
 fn write_hunk_header(out : &mut Write,
-                     old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
                      hunk : &Hunk<Vec<u8>>) -> io::Result<()> {
     let mut header = vec![];
     write!(header, "@@ -")?;
-    write_off_len(&mut header, old_lines, hunk.old_start, hunk.old_len)?;
+    write_off_len(&mut header, hunk.old_start, hunk.old_len)?;
     write!(header, " +")?;
-    write_off_len(&mut header, new_lines, hunk.new_start, hunk.new_len)?;
+    write_off_len(&mut header, hunk.new_start, hunk.new_len)?;
     writeln!(header, " @@")?;
     out.write_all(&header)
 }
@@ -192,7 +189,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
     fn do_write(&self, conf : &Conf, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
                 out : &mut Write) -> io::Result<()> {
-        write_hunk_header(out, old_lines, new_lines, self)?;
+        write_hunk_header(out, self)?;
         let mut last_removed_nl = None;
         let mut last_added_nl = None;
         for d in self.items.iter().rev() {
@@ -294,7 +291,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
 }
 
 fn append<T: PartialEq + Clone>(hunk : &mut Option<Hunk<T>>, d : DiffResult<T>) {
-    let mut h = hunk.get_or_insert_with(|| Hunk::from_diff(&d));
+    let h = hunk.get_or_insert_with(|| Hunk::from_diff(&d));
     h.append(d)
 }
 
