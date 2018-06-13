@@ -42,7 +42,7 @@ fn test_diff(conf : &Conf, dir : &temporary::Directory,
     let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
     let diff_output = &outp.stdout[pos..];
     let mut our_output : Vec<u8> = vec![];
-    diff_files(&mut our_output, conf, None, &old_p, &new_p).unwrap();
+    diff_files(&mut our_output, conf, None, None, &old_p, &new_p).unwrap();
     if our_output != diff_output {
         eprintln!("outputs differ! ours:");
         io::stderr().write(&our_output).unwrap();

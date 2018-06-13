@@ -104,6 +104,12 @@ fn sel_part_of_line(conf : &Conf, re : &Regex, line : &[u8]) -> Option<Vec<u8>> 
     }
 }
 
+fn omit_matching(line : &[u8], ignore_re : &Option<Regex>) -> Option<Vec<u8>> {
+    ignore_re.as_ref().map(|ignore_re| {
+        ignore_re.replace_all(&line, &b""[..]).into_owned()
+   })
+}
+
 fn assert_capturing(re : &Regex, s : &str) {
     // The whole RE counts as the first capture; we need a second one
     // or there's no point to using this RE.
@@ -115,6 +121,14 @@ fn assert_capturing(re : &Regex, s : &str) {
 
 trait ReSelector {
     fn sel(&self, &Conf, &[u8]) -> Option<Vec<u8>>;
+}
+
+struct NoneRe;
+
+impl ReSelector for NoneRe {
+    fn sel(&self, _ : &Conf, _ : &[u8]) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 struct SingleRe(Regex);
@@ -236,27 +250,41 @@ where
     }
 }
 
-fn extract_re_matches(conf : &Conf, re : &ReSelector, line : &[u8]) -> Vec<u8> {
-    match re.sel(conf, line) {
-        None => line.to_vec(),
-        Some (s) => s,
+fn extract_re_matches(conf : &Conf, re : &ReSelector,
+                      ignore_re : &Option<Regex>, line : &[u8]) -> Vec<u8> {
+    match re.sel(conf, &line) {
+        None => omit_matching(line, &ignore_re).unwrap_or(line.to_vec()),
+        Some (s) => omit_matching(&s, &ignore_re).unwrap_or(s),
     }
 }
 
-fn pick_lines(conf : &Conf, mre : &ReSelector, lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
-    lines.iter().map(|l| extract_re_matches(conf, mre, l)).collect()
+fn pick_lines(conf : &Conf, mre : &ReSelector, ignore_re : &Option<Regex>,
+              lines : &[Vec<u8>]) -> Vec<Vec<u8>> {
+    lines.iter().map(|l| extract_re_matches(conf, mre, ignore_re, l)).collect()
 }
 
-fn diff_files(out : &mut Write, conf : &Conf, re : Option<Values>,
+fn diff_files(out : &mut Write, conf : &Conf,
+              re : Option<Values>,
+              ignore_re : Option<&str>,
               old : &Path, new : &Path) -> io::Result<i32> {
     let mut old_lines = read_lines(old)?;
     let mut new_lines = read_lines(new)?;
+    let ignore_re = ignore_re.and_then(|s| {
+        match RegexBuilder::new(s).multi_line(true).build() {
+            Err (err) => {
+                eprintln!("Could not compile regular expression `{}`: {}", s, err);
+                exit(2)
+            },
+            Ok (re) => Some (re),
+        }
+    });
 
-    let diff : Vec<DiffResult<Vec<u8>>> = match re {
-        Some (values) => {
-            let mre = build_re_selector(values);
-            let pick_old = pick_lines(conf, &*mre, &old_lines);
-            let pick_new = pick_lines(conf, &*mre, &new_lines);
+    let diff : Vec<DiffResult<Vec<u8>>> = match (re, &ignore_re) {
+        (None, &None) => lcs_diff::diff(&old_lines, &new_lines),
+        (re, _) => {
+            let mre = re.map(build_re_selector).unwrap_or(Box::new(NoneRe));
+            let pick_old = pick_lines(conf, &*mre, &ignore_re, &old_lines);
+            let pick_new = pick_lines(conf, &*mre, &ignore_re, &new_lines);
             let d = lcs_diff::diff(&pick_old, &pick_new);
             if conf.display_selected {
                 // If the user requested that only the matching parts
@@ -267,8 +295,7 @@ fn diff_files(out : &mut Write, conf : &Conf, re : Option<Values>,
             }
             d
         },
-        None => lcs_diff::diff(&old_lines, &new_lines)
-    };
+      };
     if !exist_differences(&diff) {
         return Ok (0); // Exit w/o producing any output
     }
@@ -311,6 +338,14 @@ fn main() {
              .number_of_values(1)
              .value_name("RE")
              .help("Compare the parts of lines matched by this regexp"))
+        .arg(Arg::with_name("ignore_re")
+             .required(false)
+             .short("i")
+             .long("ignore")
+             .takes_value(true)
+             .number_of_values(1)
+             .value_name("RE")
+             .help("Ignore parts of lines matched by this regexp"))
         .arg(Arg::with_name("context_format")
              .required(false)
              .long("context-format")
@@ -345,6 +380,7 @@ fn main() {
     let ecode = match diff_files(&mut io::stdout(),
                                  &conf,
                                  matches.values_of("common_re"),
+                                 matches.value_of("ignore_re"),
                                  Path::new(matches.value_of("old").unwrap()),
                                  Path::new(matches.value_of("new").unwrap())) {
         Ok (ecode) => ecode,
