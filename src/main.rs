@@ -104,6 +104,15 @@ fn sel_part_of_line(conf : &Conf, re : &Regex, line : &[u8]) -> Option<Vec<u8>> 
     }
 }
 
+fn assert_capturing(re : &Regex, s : &str) {
+    // The whole RE counts as the first capture; we need a second one
+    // or there's no point to using this RE.
+    if re.captures_len() <= 1 {
+        eprintln!("Regex does not have any capturing groups: {}", s);
+        exit(2)
+    }
+}
+
 trait ReSelector {
     fn sel(&self, &Conf, &[u8]) -> Option<Vec<u8>>;
 }
@@ -115,7 +124,10 @@ impl SingleRe {
         // Note: Our lines contain the EOL character. Use multi-line mode, so that
         // $ can match the EOL and the RE will still work if the user does ^foo$.
         match RegexBuilder::new(s).multi_line(true).build() {
-            Ok (re) => SingleRe(re),
+            Ok (re) => {
+                assert_capturing(&re, s);
+                SingleRe(re)
+            },
             Err (err) => {
                 eprintln!("Could not compile regular expression `{}`: {}",
                           s, err);
@@ -146,7 +158,10 @@ impl MultiRe {
         let regexes =
             strs.clone().into_iter().map(|s| {
                 match RegexBuilder::new(s.as_ref()).multi_line(true).build() {
-                    Ok (re) => re,
+                    Ok (re) => {
+                        assert_capturing(&re, s.as_ref());
+                        re
+                    },
                     Err (err) => {
                         eprintln!("Could not compile regular expression `{}`: {}",
                                   s.as_ref(), err);
