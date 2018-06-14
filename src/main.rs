@@ -16,7 +16,7 @@ use std::fs::File;
 use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
-use clap::{App, Arg, Values};
+use clap::{App, Arg};
 use regex::bytes::{Regex, RegexSet, RegexBuilder, RegexSetBuilder};
 
 macro_rules! dprintln {
@@ -263,10 +263,13 @@ fn pick_lines(conf : &Conf, mre : &ReSelector, ignore_re : &Option<Regex>,
     lines.iter().map(|l| extract_re_matches(conf, mre, ignore_re, l)).collect()
 }
 
-fn diff_files(out : &mut Write, conf : &Conf,
-              re : Option<Values>,
-              ignore_re : Option<&str>,
-              old : &Path, new : &Path) -> io::Result<i32> {
+fn diff_files<'a, I>(out : &mut Write, conf : &Conf,
+                 re : Option<I>,
+                 ignore_re : Option<&str>,
+                 old : &Path, new : &Path) -> io::Result<i32>
+where
+    I : IntoIterator<Item = &'a str> + Clone
+{
     let mut old_lines = read_lines(old)?;
     let mut new_lines = read_lines(new)?;
     let ignore_re = ignore_re.and_then(|s| {
@@ -282,7 +285,7 @@ fn diff_files(out : &mut Write, conf : &Conf,
     let diff : Vec<DiffResult<Vec<u8>>> = match (re, &ignore_re) {
         (None, &None) => lcs_diff::diff(&old_lines, &new_lines),
         (re, _) => {
-            let mre = re.map(build_re_selector).unwrap_or(Box::new(NoneRe));
+            let mre : Box<ReSelector> = re.map(build_re_selector).unwrap_or(Box::new(NoneRe));
             let pick_old = pick_lines(conf, &*mre, &ignore_re, &old_lines);
             let pick_new = pick_lines(conf, &*mre, &ignore_re, &new_lines);
             let d = lcs_diff::diff(&pick_old, &pick_new);
