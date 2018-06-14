@@ -3,35 +3,18 @@ use itertools::Itertools;
 use std::process::Command;
 use std::ffi::OsStr;
 
-fn skip_past_second_newline(bytes : &Vec<u8>) -> Option<usize> {
-    let mut cnt = 0;
-    bytes.iter().position(|&el|
-                   if el == b'\n' {
-                       if cnt == 1 {
-                           true
-                       } else {
-                           cnt += 1;
-                           false
-                       }
-                   } else {
-                       false
-                   }).map(|pos| pos + 1)
-}
-
 enum TestDiff {
     AgainstDiff,
     AgainstGiven (Vec<u8>),
 }
 
 fn diff_two_files(conf : &Conf, old : &Path, new : &Path) -> Vec<u8> {
-    let mut outp = Command::new("diff")
+    let outp = Command::new("diff")
         .args(&[OsStr::new("-U"),
                 OsStr::new(&conf.context.to_string()),
                 old.as_os_str(),
                 new.as_os_str()])
         .output().unwrap();
-    let pos = skip_past_second_newline(&outp.stdout).unwrap_or(0);
-    outp.stdout.drain(0..pos);
     outp.stdout
 }
 
@@ -58,7 +41,13 @@ where
     diff_files(&mut our_output, conf, res, ignore_re, &old_p, &new_p).unwrap();
     let expected = match test {
         TestDiff::AgainstDiff => diff_two_files(conf, &old_p, &new_p),
-        TestDiff::AgainstGiven (s) => s,
+        TestDiff::AgainstGiven (s) => {
+            let mut complete = vec![];
+            file_header(&mut complete, b"---", &old_p).unwrap();
+            file_header(&mut complete, b"+++", &new_p).unwrap();
+            complete.extend(s);
+            complete
+        },
     };
     if our_output != expected {
         eprintln!("outputs differ! ours:");

@@ -1,5 +1,6 @@
 extern crate lcs_diff;
-#[cfg(test)]
+extern crate chrono;
+
 #[macro_use]
 extern crate itertools;
 #[cfg(test)]
@@ -17,7 +18,9 @@ use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
 use clap::{App, Arg};
+use std::os::unix::ffi::OsStringExt;
 use regex::bytes::{Regex, RegexSet, RegexBuilder, RegexSetBuilder};
+use chrono::{DateTime, Local};
 
 macro_rules! dprintln {
     ($dbg:expr, $fmt:expr, $( $args:expr ),*) => {
@@ -51,6 +54,19 @@ fn read_lines(p : &Path) -> io::Result<Vec<Vec<u8>>> {
         }
         ret.push(buf)
     }
+}
+
+fn file_header(out : &mut Write, prefix : &[u8], path : &Path) -> io::Result<()> {
+    let meta = path.metadata()?;
+    let modified = meta.modified()?;
+    let dt : DateTime<Local> = DateTime::from(modified);
+    let mut acc = vec![];
+    acc.write_all(prefix)?;
+    acc.write_all(b" ")?;
+    acc.write_all(&path.as_os_str().to_os_string().into_vec())?;
+    acc.write_all(b"\t")?;
+    write!(acc, "{}\n", dt.format("%Y-%m-%d %H:%M:%S.%f %z"))?;
+    out.write_all(&acc)
 }
 
 fn exist_differences<T : PartialEq + Clone>(results : &[DiffResult<T>]) -> bool {
@@ -272,6 +288,7 @@ where
 {
     let mut old_lines = read_lines(old)?;
     let mut new_lines = read_lines(new)?;
+
     let ignore_re = ignore_re.and_then(|s| {
         match RegexBuilder::new(s).multi_line(true).build() {
             Err (err) => {
@@ -302,7 +319,8 @@ where
     if !exist_differences(&diff) {
         return Ok (0); // Exit w/o producing any output
     }
-
+    file_header(out, b"---", old)?;
+    file_header(out, b"+++", new)?;
     display_diff_hunked::<Vec<u8>>(out, conf, &old_lines, &new_lines, diff)
 }
 
