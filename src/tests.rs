@@ -2,6 +2,8 @@ use super::*;
 use itertools::Itertools;
 use std::process::Command;
 use std::ffi::OsStr;
+use conf::ContextLineFormat::*;
+use conf::CharacterClassExpansion::*;
 
 enum TestDiff {
     AgainstDiff,
@@ -312,5 +314,70 @@ fn re_and_ignore_re_work() {
     test_given(&conf, re, ignore_re,
                &["a b c\n", "d e 0xf00\n", "1 i j\n", "1 l 2\n", "& 3 o\n", "& p q\n"],
                &["a x c\n", "d e 0xeac\n", "1 i x\n", "1 l 3\n", "& 4 o\n", "# p q\n"],
+               expected)
+}
+
+#[test]
+fn character_class_wide() {
+    let conf = Conf {
+        debug : false,
+        context : 100,
+        context_format : CC (Wide),
+        ..Conf::default()
+    };
+    let re = Some (vec![
+        // only last word matches, if line starts with a letter
+        r"^[a-z]+\s+\S+\s+(\w+)$",
+    ]);
+    let expected = join_lines(vec![
+        r"@@ -1,6 +1,6 @@",
+        r" a z\a{1}w c",
+        r"-1 e f",
+        r"+1 e x",
+        r" g 0\d{1,2}9 h",
+        r" j z\w{2}w k",
+        r" n z.{3}w o",
+        // Test that multiple non-adjacent changes are printed properly.
+        r" p a\a{1}c\a{1}ef q",
+    ]);
+    test_given(&conf, re, None,
+               &["a zbw c\n", "1 e f\n", "g 019 h\n",  "j zl2w k\n",
+                 "n zp1@w o\n", "p abcdef q\n"],
+               &["a zxw c\n", "1 e x\n", "g 0229 h\n", "j zm3w k\n",
+                 "n zx24w o\n", "p axcyef q\n"],
+               expected)
+}
+
+#[test]
+fn character_class_narrow() {
+    let conf = Conf {
+        debug : false,
+        context : 100,
+        context_format : CC (Narrow),
+        ..Conf::default()
+    };
+    let re = Some (vec![
+        // only last word matches, if line starts with a letter
+        r"^[a-z]+\s+\S+\s+(\w+)$",
+    ]);
+    let expected = join_lines(vec![
+        r"@@ -1,8 +1,8 @@",
+        r" aa \a+ c",
+        r"-1 e f",
+        r"+1 e x",
+        r" g \d+ h",
+        r" j \w+ k",
+        r" n z.+w o",
+        r" p \a+ r",
+        // Test summarization of multiple, non-adjacent, changes.
+        r" \a+ \d+ u",
+        // Test that a\ac\aef is collapsed to \a, not \a\a.
+        r" \a+ \d+ w",
+    ]);
+    test_given(&conf, re, None,
+               &["aa zbw c\n", "1 e f\n", "g 019 h\n",  "j zl2w k\n", "n zp1@w o\n", "p abcdef r\n",
+                 "jun 12 u\n", "abcdef 7 w\n"],
+               &["aa zxw c\n", "1 e x\n", "g 0229 h\n", "j zm3w k\n", "n zx24w o\n", "p aBCDEf r\n",
+                 "nov 09 u\n", "axcyef 8 w\n"],
                expected)
 }

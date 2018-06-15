@@ -1,8 +1,13 @@
 extern crate lcs_diff;
 extern crate chrono;
 
+#[cfg(test)]
 #[macro_use]
 extern crate itertools;
+
+#[cfg(not(test))]
+extern crate itertools;
+
 #[cfg(test)]
 extern crate temporary;
 extern crate clap;

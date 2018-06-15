@@ -1,6 +1,13 @@
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum CharacterClassExpansion {
+    Narrow,
+    Wide,
+}
+
 #[derive(Clone, Copy)]
 pub enum ContextLineFormat {
-    CC,
+    CC (CharacterClassExpansion),
     Wdiff,
     Old,
     New,
@@ -8,12 +15,15 @@ pub enum ContextLineFormat {
 
 impl ContextLineFormat {
     pub fn allowed_values() -> Vec<&'static str> {
-        vec!["cc", "wdiff", "old", "new"]
+        vec!["cc", "ccwide", "wdiff", "old", "new"]
     }
     pub fn new(s : &str) -> ContextLineFormat {
         use self::ContextLineFormat::*;
+        use self::CharacterClassExpansion::*;
         if s == "cc" {
-            CC
+            CC (Narrow)
+        } else if s == "ccmin" {
+            CC (Wide)
         } else if s == "wdiff" {
             Wdiff
         } else if s == "old" {

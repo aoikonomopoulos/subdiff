@@ -144,8 +144,8 @@ impl DisplayableHunk for Hunk<u8> {
                 o : &[u8], n : &[u8],
                 out : &mut Write) -> io::Result<()> {
         match conf.context_format {
-            ContextLineFormat::CC =>
-                intra_line_write_cc(&self, conf, o, n, out),
+            ContextLineFormat::CC (expansion) =>
+                intra_line_write_cc(&self, expansion, conf, o, n, out),
             ContextLineFormat::Wdiff =>
                 intra_line_write_wdiff(&self, conf, o, n, out),
             ContextLineFormat::Old =>
