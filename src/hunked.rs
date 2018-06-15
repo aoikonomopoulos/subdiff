@@ -2,6 +2,7 @@ use std::io;
 use std::io::prelude::*;
 use std::fmt::Debug;
 use std::collections::VecDeque;
+use std::usize;
 use super::lcs_diff;
 use super::lcs_diff::{DiffResult, DiffElement};
 use super::conf::{Conf, ContextLineFormat};
@@ -243,7 +244,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                             b" "
                         };
                         out.write_all(pref)?;
-                        let conf = Conf {context: 1000, ..conf.clone()};
+                        let conf = Conf {context: usize::MAX, ..conf.clone()};
                         display_diff_hunked::<u8>(out, &conf,
                                                    &old_lines[*o][..],
                                                    &new_lines[*n][..], diff)?;
