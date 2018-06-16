@@ -205,50 +205,61 @@ fn write_hunk_header(out : &mut Write,
     out.write_all(&header)
 }
 
+fn check_last_line_nl<'a, I>(old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
+                         items : I) -> (Option<bool>, Option<bool>)
+where
+    I : DoubleEndedIterator<Item=&'a DiffResult<Vec<u8>>>,
+{
+    let mut last_removed_nl = None;
+    let mut last_added_nl = None;
+    for d in items.rev() {
+        match d {
+            DiffResult::Common (_) => (),
+            DiffResult::Removed (r) => {
+                match last_removed_nl {
+                    Some (_) => (),
+                    None => {
+                        let o = r.old_index.unwrap();
+                        if o < (old_lines.len() - 1) {
+                            continue
+                        }
+                        let lo = &old_lines[o][..];
+                        last_removed_nl = Some (lo[lo.len() - 1] == b'\n');
+                        if last_added_nl.is_some() {
+                            break
+                        }
+                    }
+                }
+            },
+            DiffResult::Added (a) => {
+                match last_added_nl {
+                    Some (_) => (),
+                    None => {
+                        let n = a.new_index.unwrap();
+                        if n < (new_lines.len() - 1) {
+                            continue
+                        }
+                        let ln = &new_lines[n][..];
+                        last_added_nl = Some (ln[ln.len() - 1] == b'\n');
+                        if last_removed_nl.is_some() {
+                            break
+                        }
+                    }
+                }
+            },
+        }
+    }
+    (last_removed_nl, last_added_nl)
+}
+
 impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
     fn do_write(&self, conf : &Conf, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
                 out : &mut Write) -> io::Result<()> {
         write_hunk_header(out, self)?;
-        let mut last_removed_nl = None;
-        let mut last_added_nl = None;
-        for d in self.items.iter().rev() {
-            match d {
-                DiffResult::Common (_) => (),
-                DiffResult::Removed (r) => {
-                    match last_removed_nl {
-                        Some (_) => (),
-                        None => {
-                            let o = r.old_index.unwrap();
-                            if o < (old_lines.len() - 1) {
-                                continue
-                            }
-                            let lo = &old_lines[o][..];
-                            last_removed_nl = Some (lo[lo.len() - 1] == b'\n');
-                            if last_added_nl.is_some() {
-                                break
-                            }
-                        }
-                    }
-                },
-                DiffResult::Added (a) => {
-                    match last_added_nl {
-                        Some (_) => (),
-                        None => {
-                            let n = a.new_index.unwrap();
-                            if n < (new_lines.len() - 1) {
-                                continue
-                            }
-                            let ln = &new_lines[n][..];
-                            last_added_nl = Some (ln[ln.len() - 1] == b'\n');
-                            if last_removed_nl.is_some() {
-                                break
-                            }
-                        }
-                    }
-                },
-            }
-        }
+
+        let (last_removed_nl, last_added_nl) =
+            check_last_line_nl(old_lines, new_lines, self.items.iter());
         for d in &self.items {
             match d {
                 DiffResult::Common (DiffElement { old_index : Some (o), new_index : Some (n), ..}) => {
