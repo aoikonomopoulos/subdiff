@@ -6,6 +6,28 @@ pub enum CharacterClassExpansion {
 }
 
 #[derive(Clone, Copy)]
+pub enum ContextLineTokenization {
+    Char,
+    Word,
+}
+
+impl ContextLineTokenization {
+    pub fn allowed_values() -> Vec<&'static str> {
+        vec!["word", "char"]
+    }
+    pub fn new(s : &str) -> ContextLineTokenization {
+        use self::ContextLineTokenization::*;
+        if s == "word" {
+            Word
+        } else if s == "char" {
+            Char
+        } else {
+            panic!("Unsupported value: `{}`", s);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum ContextLineFormat {
     CC (CharacterClassExpansion),
     Wdiff,
@@ -41,6 +63,7 @@ pub struct Conf {
     pub debug : bool,
     pub context : usize,
     pub mark_changed_context: bool,
+    pub context_tokenization : ContextLineTokenization,
     pub context_format: ContextLineFormat,
     pub display_selected: bool,
 }
@@ -51,6 +74,7 @@ impl Conf {
             debug : false,
             context : 3,
             mark_changed_context : false,
+            context_tokenization : ContextLineTokenization::Word,
             context_format : ContextLineFormat::Wdiff,
             display_selected : false,
         }

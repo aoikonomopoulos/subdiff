@@ -380,6 +380,13 @@ fn main() {
              .help("Format for displayed context lines")
              .possible_values(&conf::ContextLineFormat::allowed_values())
              .default_value("wdiff"))
+        .arg(Arg::with_name("context_tokenization")
+             .required(false)
+             .short("t")
+             .long("context-tokenization")
+             .help("Tokenization of context lines for diffing")
+             .possible_values(&conf::ContextLineTokenization::allowed_values())
+             .default_value("word"))
         .arg(Arg::with_name("mark_changed_context")
              .required(false)
              .long("mark-changed-context")
@@ -403,6 +410,12 @@ fn main() {
     let conf = match matches.value_of("context_format") {
         None => conf,
         Some (v) => Conf { context_format : conf::ContextLineFormat::new(v), ..conf},
+    };
+    let conf = match matches.value_of("context_tokenization") {
+        None => conf,
+        Some (v) => Conf {
+            context_tokenization : conf::ContextLineTokenization::new(v), ..conf
+        },
     };
     let ecode = match diff_files(&mut io::stdout(),
                                  &conf,

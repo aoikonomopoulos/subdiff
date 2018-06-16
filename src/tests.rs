@@ -2,8 +2,10 @@ use super::*;
 use itertools::Itertools;
 use std::process::Command;
 use std::ffi::OsStr;
+use std::usize;
 use conf::ContextLineFormat::*;
 use conf::CharacterClassExpansion::*;
+use conf::ContextLineTokenization::*;
 
 enum TestDiff {
     AgainstDiff,
@@ -108,7 +110,11 @@ fn long_test_of_combos_against_diff() {
 fn do_wdiff(s1 : &str, s2 : &str, out : &mut Write) {
     let diff = lcs_diff::diff(s1.as_bytes(), s2.as_bytes());
     if exist_differences(&diff) {
-        let conf = Conf {context : 1000, ..Conf::default()};
+        let conf = Conf {
+            context : usize::MAX,
+            context_tokenization : Char,
+            ..Conf::default()
+        };
         display_diff_hunked(out, &conf, s1.as_bytes(), s2.as_bytes(), diff).unwrap();
     } else {
         out.write(s1.as_bytes()).unwrap();
@@ -233,6 +239,7 @@ fn multiple_res_work() {
         debug : false,
         context : 1,
         context_format : ContextLineFormat::Wdiff,
+        context_tokenization : Char,
         ..Conf::default()
     };
     let re = Some (vec![
@@ -264,6 +271,7 @@ fn ignore_re_works() {
     let conf = Conf {
         debug : false,
         context : 1,
+        context_tokenization : Char,
         ..Conf::default()
     };
     let re : Option<Vec<&'static str>> = None;
@@ -285,6 +293,7 @@ fn re_and_ignore_re_work() {
     let conf = Conf {
         debug : false,
         context : 1,
+        context_tokenization : Char,
         ..Conf::default()
     };
     let re = Some (vec![
@@ -323,6 +332,7 @@ fn character_class_wide() {
         debug : false,
         context : 100,
         context_format : CC (Wide),
+        context_tokenization : Char,
         ..Conf::default()
     };
     let re = Some (vec![
@@ -354,6 +364,7 @@ fn character_class_narrow() {
         debug : false,
         context : 100,
         context_format : CC (Narrow),
+        context_tokenization : Char,
         ..Conf::default()
     };
     let re = Some (vec![

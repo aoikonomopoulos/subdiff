@@ -5,8 +5,9 @@ use std::collections::VecDeque;
 use std::usize;
 use super::lcs_diff;
 use super::lcs_diff::{DiffResult, DiffElement};
-use super::conf::{Conf, ContextLineFormat};
+use super::conf::{Conf, ContextLineFormat, ContextLineTokenization};
 use super::wdiff::*;
+use wdiff::Word;
 
 pub trait DisplayableHunk where Self::DiffItem : PartialEq + Clone + Debug + Sized {
     type DiffItem;
@@ -157,6 +158,24 @@ impl DisplayableHunk for Hunk<u8> {
     }
 }
 
+impl DisplayableHunk for Hunk<Word> {
+    type DiffItem = Word;
+    fn do_write(&self, conf : &Conf,
+                o : &[Word], n : &[Word],
+                out : &mut Write) -> io::Result<()> {
+        match conf.context_format {
+            ContextLineFormat::CC (expansion) =>
+                intra_line_write_cc(&self, expansion, conf, o, n, out),
+            ContextLineFormat::Wdiff =>
+                intra_line_write_wdiff(&self, conf, o, n, out),
+            ContextLineFormat::Old =>
+                out.write_all(&(&o[..]).join()),
+            ContextLineFormat::New =>
+                out.write_all(&(&n[..]).join()),
+        }
+    }
+}
+
 fn write_off_len(out : &mut Write,
                  off : usize, len : usize) -> io::Result<()> {
     // Special case galore: if the len is zero, the line offset is that
@@ -233,21 +252,37 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
         for d in &self.items {
             match d {
                 DiffResult::Common (DiffElement { old_index : Some (o), new_index : Some (n), ..}) => {
-                    let diff = lcs_diff::diff::<u8>(&old_lines[*o][..], &new_lines[*n][..]);
+                    let line_o = &old_lines[*o][..];
+                    let line_n = &new_lines[*n][..];
+                    let diff = lcs_diff::diff::<u8>(line_o, line_n);
                     if !super::exist_differences(&diff) {
                         out.write_all(b" ")?;
                         out.write_all(&old_lines[*o][..])?;
                     } else {
+                        let mut buf : Vec<u8> = vec![];
                         let pref = if conf.mark_changed_context {
                             b"!"
                         } else {
                             b" "
                         };
-                        out.write_all(pref)?;
-                        let conf = Conf {context: usize::MAX, ..conf.clone()};
-                        display_diff_hunked::<u8>(out, &conf,
-                                                   &old_lines[*o][..],
-                                                   &new_lines[*n][..], diff)?;
+                        buf.write_all(pref)?;
+                        match conf.context_tokenization {
+                            ContextLineTokenization::Char => {
+                                let conf = Conf {context: usize::MAX, ..conf.clone()};
+                                display_diff_hunked::<u8>(&mut buf, &conf,
+                                                          &old_lines[*o][..],
+                                                          &new_lines[*n][..], diff)?;
+                            },
+                            ContextLineTokenization::Word => {
+                                let conf = Conf {context: usize::MAX, ..conf.clone()};
+                                let words_o = tokenize(line_o);
+                                let words_n = tokenize(line_n);
+                                let diff = lcs_diff::diff::<Word>(&words_o[..], &words_n[..]);
+                                display_diff_hunked::<Word>(&mut buf, &conf,
+                                                            &words_o, &words_n, diff)?;
+                            },
+                        };
+                        out.write_all(&buf)?;
                     }
                 },
                 DiffResult::Removed (DiffElement { old_index : Some (o), ..}) => {
