@@ -70,7 +70,7 @@ fn file_header(out : &mut Write, prefix : &[u8], path : &Path) -> io::Result<()>
     acc.write_all(b" ")?;
     acc.write_all(&path.as_os_str().to_os_string().into_vec())?;
     acc.write_all(b"\t")?;
-    write!(acc, "{}\n", dt.format("%Y-%m-%d %H:%M:%S.%f %z"))?;
+    writeln!(acc, "{}", dt.format("%Y-%m-%d %H:%M:%S.%f %z"))?;
     out.write_all(&acc)
 }
 
@@ -274,7 +274,7 @@ where
 fn extract_re_matches(conf : &Conf, re : &ReSelector,
                       ignore_re : &Option<Regex>, line : &[u8]) -> Vec<u8> {
     match re.sel(conf, &line) {
-        None => omit_matching(line, &ignore_re).unwrap_or(line.to_vec()),
+        None => omit_matching(line, &ignore_re).unwrap_or_else(|| line.to_vec()),
         Some (s) => omit_matching(&s, &ignore_re).unwrap_or(s),
     }
 }
@@ -307,7 +307,8 @@ where
     let diff : Vec<DiffResult<Vec<u8>>> = match (re, &ignore_re) {
         (None, &None) => lcs_diff::diff(&old_lines, &new_lines),
         (re, _) => {
-            let mre : Box<ReSelector> = re.map(build_re_selector).unwrap_or(Box::new(NoneRe));
+            let mre : Box<ReSelector> = re.map(build_re_selector)
+                .unwrap_or_else(|| Box::new(NoneRe));
             let pick_old = pick_lines(conf, &*mre, &ignore_re, &old_lines);
             let pick_new = pick_lines(conf, &*mre, &ignore_re, &new_lines);
             let d = lcs_diff::diff(&pick_old, &pick_new);
