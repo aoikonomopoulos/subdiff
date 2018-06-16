@@ -80,7 +80,7 @@ fn do_chunk(conf : &Conf, idx : usize, chunk : &[(usize, usize)], lines : &[&str
 }
 
 #[test]
-fn combos_against_diff() {
+fn long_test_of_combos_against_diff() {
     let conf = Conf {
         context: 1,
         debug : false,
