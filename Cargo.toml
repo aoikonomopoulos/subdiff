@@ -1,7 +1,8 @@
 [package]
 name = "subdiff"
 version = "0.1.0"
-authors = ["user"]
+authors = ["Angelos Oikonomopoulos"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 lcs-diff = "0.1.1"
