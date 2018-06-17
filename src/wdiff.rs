@@ -66,19 +66,16 @@ pub enum CharacterClass<T : PartialEq + Clone> {
     Any (PhantomData<T>),
 }
 
-// XXX: Into
-fn cast_cc<T, U>(cc : CharacterClass<T>) -> CharacterClass<U>
-where
-    T : PartialEq + Clone,
-U : PartialEq + Clone,
-{
-    use self::CharacterClass::*;
-    match cc {
-        White => White,
-        Digit => Digit,
-        Alpha => Alpha,
-        Word => Word,
-        Any (_) => Any (PhantomData),
+impl Into<CharacterClass<Word>> for CharacterClass<u8> {
+    fn into(self) -> CharacterClass<Word> {
+        use self::CharacterClass::*;
+        match self {
+            White => White,
+            Digit => Digit,
+            Alpha => Alpha,
+            Word => Word,
+            Any (_) => Any (PhantomData),
+        }
     }
 }
 
@@ -112,7 +109,7 @@ impl HasCharacterClass for Word {
             Some (ch) => ch.cc()
         };
         let cc : CharacterClass<u8> = chars.fold(cc, |cc, ch| cc.merge(&ch.cc()));
-        cast_cc::<u8,Word>(cc)
+        cc.into()
     }
 }
 
