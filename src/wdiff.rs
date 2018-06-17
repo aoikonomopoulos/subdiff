@@ -12,6 +12,9 @@ use conf::{Conf, CharacterClassExpansion};
 pub struct Word(Vec<u8>); // XXX: &[u8]
 
 pub trait Writeable {
+    // This basically means: "can serialize itself into bytes". Can
+    // hopefully switch to std::slice::from_ref (needed for u8) once
+    // it becomes stable.
     fn write_to(&self, out : &mut Write) -> io::Result<()>;
 }
 
@@ -29,20 +32,26 @@ impl Writeable for Word {
     }
 }
 
-pub trait Joinable {
-    fn join(&self) -> Vec<u8>;
+impl<'a, T> Writeable for &'a [T]
+where
+    T: Writeable,
+{
+    // We rely on our callers to give us a buffer, not a File,
+    // or performance will suffer.
+    fn write_to(&self, out : &mut Write) -> io::Result<()> {
+        for w in self.iter() {
+            w.write_to(out).unwrap()
+        }
+        Ok (())
+    }
 }
 
-impl<'a, T> Joinable for &'a [T]
+impl<T> Writeable for Vec<T>
 where
-    T: Writeable
+    T : Writeable,
 {
-    fn join(&self) -> Vec<u8> {
-        let mut out : Vec<u8> = vec![];
-        for w in self.iter() {
-            w.write_to(&mut out).unwrap()
-        }
-        out
+    fn write_to(&self, out : &mut Write) -> io::Result<()> {
+        (&self[..]).write_to(out)
     }
 }
 
@@ -228,7 +237,7 @@ where
     let first = match first {
         None => {
             // End of line, print out the accumulated context.
-            out.write_all(&(&context_pre[..]).join())?;
+            context_pre.write_to(out)?;
             return Ok (())
         },
         Some (d) => {
@@ -253,7 +262,7 @@ where
     }).count();
     // Output the common characters to our left that are not
     // summarized by the current CC.
-    out.write_all(&(&context_pre[..n_unsummarizable]).join())?;
+    (&context_pre[..n_unsummarizable]).write_to(out)?;
 
     // If the previously printed CC was the same as the current one
     // AND we were able to include all preceeding common characters
@@ -324,7 +333,7 @@ where
     Peekable<I> : Clone,
 {
     let common : Vec<T> = items.peeking_take_while(|d| is_common(d)).map(res_data).collect();
-    out.write_all(&(&common[..]).join())?;
+    common.write_to(out)?;
     wide_do_differences(out, items)
 }
 

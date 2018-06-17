@@ -169,9 +169,9 @@ impl DisplayableHunk for Hunk<Word> {
             ContextLineFormat::Wdiff =>
                 intra_line_write_wdiff(&self, conf, o, n, out),
             ContextLineFormat::Old =>
-                out.write_all(&(&o[..]).join()),
+                o.write_to(out),
             ContextLineFormat::New =>
-                out.write_all(&(&n[..]).join()),
+                n.write_to(out),
         }
     }
 }
