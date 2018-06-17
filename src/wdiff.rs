@@ -374,12 +374,12 @@ where
                         ShowingCommon
                     },
                     DiffResult::Added (el) => {
-                        extend(&mut line, "+{");
+                        extend(&mut line, "{+");
                         el.data.write_to(&mut line)?;
                         ShowingAdds
                     },
                     DiffResult::Removed(el) => {
-                        extend(&mut line, "-{");
+                        extend(&mut line, "{-");
                         el.data.write_to(&mut line)?;
                         ShowingRemoves
                     }
@@ -398,7 +398,7 @@ where
                     },
                     DiffResult::Removed (el) => {
                         line.push(b'}');
-                        extend(&mut line, "-{");
+                        extend(&mut line, "{-");
                         el.data.write_to(&mut line)?;
                         ShowingRemoves
                     },
@@ -413,7 +413,7 @@ where
                     },
                     DiffResult::Added (el) => {
                         line.push(b'}');
-                        extend(&mut line, "+{");
+                        extend(&mut line, "{+");
                         el.data.write_to(&mut line)?;
                         ShowingAdds
                     },

@@ -138,20 +138,20 @@ fn check_wdiff(s1 : &str, s2 : &str, exp : &str) {
 #[test]
 fn context_wdiff() {
     check_wdiff("", "", "");
-    check_wdiff("", "a", "+{a}");
-    check_wdiff("a", "", "-{a}");
+    check_wdiff("", "a", "{+a}");
+    check_wdiff("a", "", "{-a}");
     check_wdiff("a", "a", "a");
 
     check_wdiff("ab", "ab", "ab");
-    check_wdiff("ac", "abc", "a+{b}c");
-    check_wdiff("abc", "ac", "a-{b}c");
+    check_wdiff("ac", "abc", "a{+b}c");
+    check_wdiff("abc", "ac", "a{-b}c");
 
-    check_wdiff("ad", "abcd", "a+{bc}d");
-    check_wdiff("abcd", "ad", "a-{bc}d");
-    check_wdiff("ac", "abcd", "a+{b}c+{d}");
-    check_wdiff("acd", "abc", "a+{b}c-{d}");
-    check_wdiff("abc", "adc", "a-{b}+{d}c");
-    check_wdiff("abcd", "aefd", "a-{bc}+{ef}d");
+    check_wdiff("ad", "abcd", "a{+bc}d");
+    check_wdiff("abcd", "ad", "a{-bc}d");
+    check_wdiff("ac", "abcd", "a{+b}c{+d}");
+    check_wdiff("acd", "abc", "a{+b}c{-d}");
+    check_wdiff("abc", "adc", "a{-b}{+d}c");
+    check_wdiff("abcd", "aefd", "a{-bc}{+ef}d");
 }
 
 fn do_newline_at_eof(conf : &Conf) {
@@ -250,10 +250,10 @@ fn multiple_res_work() {
     ]);
     let expected = join_lines(vec![
         "@@ -1,6 +1,6 @@",
-        " a -{b}+{x} c",
+        " a {-b}{+x} c",
         "-d e f",
         "+d e x",
-        " -{1}+{2} g h",
+        " {-1}{+2} g h",
         "-1 i j",
         "+1 i x",
         " k l m",
@@ -278,7 +278,7 @@ fn ignore_re_works() {
     let ignore_re = Some (r"\b\d\b|0x[a-f0-9]+");
     let expected = join_lines(vec![
         "@@ -2,2 +2,2 @@",
-        " d e 0x-{f00}+{eac}",
+        " d e 0x{-f00}{+eac}",
         "-g h i",
         "+x h i"
     ]);
@@ -308,14 +308,14 @@ fn re_and_ignore_re_work() {
         // Change at 1st line selected-out by 1st RE
         "@@ -2,5 +2,5 @@",
         // Change at 2nd line ignored by ignore_re, appears as common
-        " d e 0x-{f00}+{eac}",
+        " d e 0x{-f00}{+eac}",
         // Matched by 2nd RE
         "-1 i j",
         "+1 i x",
         // Matched by 2nd RE but digits ignored by ignore_re
-        " 1 l -{2}+{3}",
+        " 1 l {-2}{+3}",
         // Not matched by the REs, but digits ignored by ignore_re
-        " & -{3}+{4} o",
+        " & {-3}{+4} o",
         // Not matched by the REs and nothing ignored
         "-& p q",
         "+# p q",
