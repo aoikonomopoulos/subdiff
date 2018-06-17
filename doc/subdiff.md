@@ -82,12 +82,13 @@ tools like `diffstat` and `colordiff`.
 	     + . any
     * *cc* Aggressively summarize by character class. This functions
         like *ccwide* above, but will also pull in any adjacent
-        characters that are common between the two files. Given that
-	we are marking changes to lines that the user specifically
-        ignored, this is the most appropriate option to summarize
-        changes to values where *wdiff* would be too much clutter. For
-        example, changes in large numerical quantities such as
-        timestamps, execution times or dates.
+        characters that are common between the two files (therefore
+        the output will be more "narrow", i.e. fewer
+        characters). Given that we are marking changes to lines that
+        the user specifically ignored, this is the most appropriate
+        option to summarize changes to values where *wdiff* would be
+        too much clutter. For example, changes in large numerical
+        quantities such as timestamps, execution times or dates.
    * *new* Use the corresponding line from the `new` file. This is
         useful when one is interested in where there were changes, but
         needs accurate context information to make sense of the

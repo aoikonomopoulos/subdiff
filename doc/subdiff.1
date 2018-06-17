@@ -99,7 +99,8 @@ any
 .IP \[bu] 2
 \f[I]cc\f[] Aggressively summarize by character class.
 This functions like \f[I]ccwide\f[] above, but will also pull in any
-adjacent characters that are common between the two files.
+adjacent characters that are common between the two files (therefore the
+output will be more \[lq]narrow\[rq], i.e.\ fewer characters).
 Given that we are marking changes to lines that the user specifically
 ignored, this is the most appropriate option to summarize changes to
 values where \f[I]wdiff\f[] would be too much clutter.
