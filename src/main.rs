@@ -341,7 +341,7 @@ fn parse_usize(s : &str) -> usize {
 }
 
 fn main() {
-    let matches = App::new("subdiff")
+    let mut app = App::new("subdiff")
         .version("0.1")
         .arg(Arg::with_name("context")
              .short("c")
@@ -397,14 +397,23 @@ fn main() {
              .long("display-selected")
              .takes_value(false)
              // This is mostly to make it easy to debug the RE
-             .help("Display diff of selected substrings"))
-        .get_matches();
+             .help("Display diff of selected substrings"));
+    if cfg!(debug_assertions) {
+        app = app.arg(Arg::with_name("debug")
+                      .required(false)
+                      .long("debug")
+                      .takes_value(false)
+                      // This is really only useful for small testcases.
+                      .help("Produce extensive debugging output"));
+    }
+    let matches = app.get_matches();
 
     let context = parse_usize(matches.value_of("context").unwrap());
     let conf = Conf {
         context,
         mark_changed_context : matches.is_present("mark_changed_context"),
         display_selected : matches.is_present("display_selected"),
+        debug : matches.is_present("debug"),
         ..Conf::default()
     };
     let conf = match matches.value_of("context_format") {
