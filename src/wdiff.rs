@@ -9,7 +9,7 @@ use hunked::Hunk;
 use conf::{Conf, CharacterClassExpansion};
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct Word(Vec<u8>); // XXX: &[u8]
+pub struct Word<'l>(&'l [u8]);
 
 pub trait Writeable {
     // This basically means: "can serialize itself into bytes". Can
@@ -26,7 +26,7 @@ impl Writeable for u8 {
     }
 }
 
-impl Writeable for Word {
+impl<'l> Writeable for Word<'l> {
     fn write_to(&self, out : &mut Write) -> io::Result<()> {
         out.write_all(&self.0[..])
     }
@@ -75,8 +75,8 @@ pub enum CharacterClass<T : PartialEq + Clone> {
     Any (PhantomData<T>),
 }
 
-impl Into<CharacterClass<Word>> for CharacterClass<u8> {
-    fn into(self) -> CharacterClass<Word> {
+impl<'l> Into<CharacterClass<Word<'l>>> for CharacterClass<u8> {
+    fn into(self) -> CharacterClass<Word<'l>> {
         use self::CharacterClass::*;
         match self {
             White => White,
@@ -109,9 +109,9 @@ impl HasCharacterClass for u8 {
     }
 }
 
-impl HasCharacterClass for Word {
-    type Item = Word;
-    fn cc(&self) -> CharacterClass<Word> {
+impl<'l> HasCharacterClass for Word<'l> {
+    type Item = Word<'l>;
+    fn cc(&self) -> CharacterClass<Word<'l>> {
         let mut chars = self.0.iter();
         let cc = match chars.next() {
             None => CharacterClass::Any (PhantomData),
@@ -433,7 +433,8 @@ where
     Ok (())
 }
 
-pub fn tokenize(line : &[u8]) -> Vec<Word> {
+pub fn tokenize<'l>(line : &'l [u8]) -> Vec<Word<'l>> {
     let re = Regex::new(r"\b").unwrap();
-    re.split(line).map(|w| Word(w.to_vec())).collect()
+    // This is where our 'l comes from.
+    re.split(line).map(|w| Word(w)).collect()
 }

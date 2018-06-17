@@ -158,8 +158,8 @@ impl DisplayableHunk for Hunk<u8> {
     }
 }
 
-impl DisplayableHunk for Hunk<Word> {
-    type DiffItem = Word;
+impl<'l> DisplayableHunk for Hunk<Word<'l>> {
+    type DiffItem = Word<'l>;
     fn do_write(&self, conf : &Conf,
                 o : &[Word], n : &[Word],
                 out : &mut Write) -> io::Result<()> {
