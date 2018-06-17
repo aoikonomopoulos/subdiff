@@ -252,6 +252,40 @@ where
     (last_removed_nl, last_added_nl)
 }
 
+fn output_context_line(out : &mut Write, conf : &Conf,
+                       line_o : &[u8], line_n : &[u8]) -> io::Result<()> {
+    let diff = lcs_diff::diff::<u8>(line_o, line_n);
+    if !super::exist_differences(&diff) {
+        out.write_all(b" ")?;
+        out.write_all(line_o)?;
+        return Ok (())
+    }
+    let mut buf : Vec<u8> = vec![];
+    let pref = if conf.mark_changed_context {
+        b"!"
+    } else {
+        b" "
+    };
+    buf.write_all(pref)?;
+    match conf.context_tokenization {
+        ContextLineTokenization::Char => {
+            let conf = Conf {context: usize::MAX, ..conf.clone()};
+            display_diff_hunked::<u8>(&mut buf, &conf,
+                                      line_o,
+                                      line_n, diff)?;
+        },
+        ContextLineTokenization::Word => {
+            let conf = Conf {context: usize::MAX, ..conf.clone()};
+            let words_o = tokenize(line_o);
+            let words_n = tokenize(line_n);
+            let diff = lcs_diff::diff::<Word>(&words_o[..], &words_n[..]);
+            display_diff_hunked::<Word>(&mut buf, &conf,
+                                        &words_o, &words_n, diff)?;
+        },
+    };
+    out.write_all(&buf)
+}
+
 impl DisplayableHunk for Hunk<Vec<u8>> {
     type DiffItem = Vec<u8>;
     fn do_write(&self, conf : &Conf, old_lines : &[Vec<u8>], new_lines : &[Vec<u8>],
@@ -265,36 +299,7 @@ impl DisplayableHunk for Hunk<Vec<u8>> {
                 DiffResult::Common (DiffElement { old_index : Some (o), new_index : Some (n), ..}) => {
                     let line_o = &old_lines[*o][..];
                     let line_n = &new_lines[*n][..];
-                    let diff = lcs_diff::diff::<u8>(line_o, line_n);
-                    if !super::exist_differences(&diff) {
-                        out.write_all(b" ")?;
-                        out.write_all(&old_lines[*o][..])?;
-                    } else {
-                        let mut buf : Vec<u8> = vec![];
-                        let pref = if conf.mark_changed_context {
-                            b"!"
-                        } else {
-                            b" "
-                        };
-                        buf.write_all(pref)?;
-                        match conf.context_tokenization {
-                            ContextLineTokenization::Char => {
-                                let conf = Conf {context: usize::MAX, ..conf.clone()};
-                                display_diff_hunked::<u8>(&mut buf, &conf,
-                                                          &old_lines[*o][..],
-                                                          &new_lines[*n][..], diff)?;
-                            },
-                            ContextLineTokenization::Word => {
-                                let conf = Conf {context: usize::MAX, ..conf.clone()};
-                                let words_o = tokenize(line_o);
-                                let words_n = tokenize(line_n);
-                                let diff = lcs_diff::diff::<Word>(&words_o[..], &words_n[..]);
-                                display_diff_hunked::<Word>(&mut buf, &conf,
-                                                            &words_o, &words_n, diff)?;
-                            },
-                        };
-                        out.write_all(&buf)?;
-                    }
+                    output_context_line(out, conf, line_o, line_n)?;
                 },
                 DiffResult::Removed (DiffElement { old_index : Some (o), ..}) => {
                     out.write_all(b"-")?;
