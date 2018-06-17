@@ -140,21 +140,30 @@ impl<T: PartialEq + Clone> Hunk<T> {
     }
 }
 
+fn do_context_write<T>(hunk : &Hunk<T>, conf : &Conf,
+                       o : &[T], n : &[T],
+                       out : &mut Write) -> io::Result<()>
+where
+    T: PartialEq + Clone + HasCharacterClass<Item=T> + Writeable,
+{
+    match conf.context_format {
+        ContextLineFormat::CC (expansion) =>
+            intra_line_write_cc(hunk, expansion, conf, o, n, out),
+        ContextLineFormat::Wdiff =>
+            intra_line_write_wdiff(hunk, conf, o, n, out),
+        ContextLineFormat::Old =>
+            o.write_to(out),
+        ContextLineFormat::New =>
+            n.write_to(out),
+    }
+}
+
 impl DisplayableHunk for Hunk<u8> {
     type DiffItem = u8;
     fn do_write(&self, conf : &Conf,
                 o : &[u8], n : &[u8],
                 out : &mut Write) -> io::Result<()> {
-        match conf.context_format {
-            ContextLineFormat::CC (expansion) =>
-                intra_line_write_cc(&self, expansion, conf, o, n, out),
-            ContextLineFormat::Wdiff =>
-                intra_line_write_wdiff(&self, conf, o, n, out),
-            ContextLineFormat::Old =>
-                out.write_all(o),
-            ContextLineFormat::New =>
-                out.write_all(n),
-        }
+        do_context_write(self, conf, o, n, out)
     }
 }
 
@@ -163,16 +172,7 @@ impl<'l> DisplayableHunk for Hunk<Word<'l>> {
     fn do_write(&self, conf : &Conf,
                 o : &[Word], n : &[Word],
                 out : &mut Write) -> io::Result<()> {
-        match conf.context_format {
-            ContextLineFormat::CC (expansion) =>
-                intra_line_write_cc(&self, expansion, conf, o, n, out),
-            ContextLineFormat::Wdiff =>
-                intra_line_write_wdiff(&self, conf, o, n, out),
-            ContextLineFormat::Old =>
-                o.write_to(out),
-            ContextLineFormat::New =>
-                n.write_to(out),
-        }
+        do_context_write(self, conf, o, n, out)
     }
 }
 
