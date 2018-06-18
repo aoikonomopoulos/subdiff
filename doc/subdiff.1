@@ -29,6 +29,11 @@ This option can be given multiple times.
 It is the responsibility of the user to ensure that no input line is
 matched by more than one regular expression \[en] a runtime error is
 generated otherwise.
+.PP
+Multiple regular expressions are searched for in parallel (i.e they are
+compiled into the same automaton); if a single regular expression
+matches, it is then re\-run by itself in order to build up the capture
+groups.
 .RE
 .TP
 .B \-i \f[I]RE\f[], \-\-ignore=RE
@@ -106,7 +111,6 @@ ignored, this is the most appropriate option to summarize changes to
 values where \f[I]wdiff\f[] would be too much clutter.
 For example, changes in large numerical quantities such as timestamps,
 execution times or dates.
-.RS 2
 .IP \[bu] 2
 \f[I]new\f[] Use the corresponding line from the \f[C]new\f[] file.
 This is useful when one is interested in where there were changes, but
@@ -114,7 +118,6 @@ needs accurate context information to make sense of the change.
 .IP \[bu] 2
 \f[I]old\f[] Use the corresponding line from the \f[C]old\f[] file.
 See the description for \f[I]new\f[].
-.RE
 .RE
 .TP
 .B \-\-context\-tokenization=CTOK
@@ -141,9 +144,9 @@ too cluttered for general use.
 .TP
 .B \-\-mark\-changed\-context
 Prefix each changed context line with a bang (\f[C]!\f[]) character.
-This can be useful when using \f[C]\-\-context\-format=new\f[] (or `old)
-to be informed of which context lines have changes between files, even
-when those changes are not being displayed.
+This can be useful when using \f[C]\-\-context\-format=new\f[] (or
+\f[C]old\f[]) to be informed of which context lines have changes between
+files, even when those changes are not being displayed.
 .RS
 .RE
 .TP
@@ -165,6 +168,15 @@ Print version information
 Display usage
 .RS
 .RE
+.SH NOTES
+.PP
+Input is treated as arbitrary bytes.
+That means that it does not need to be of a valid encoding.
+Conversely, unicode character classes are not available when specifying
+a regular expression.
+.PP
+If neither \f[C]\-r\f[] nor \f[C]\-i\f[] are specified, \f[C]subdiff\f[]
+will behave as \f[C]diff\f[].
 .SH EXIT STATUS
 .PP
 Like \f[C]diff\f[], \f[C]subdiff\f[] terminates with exit code 0 if

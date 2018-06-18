@@ -30,6 +30,11 @@ tools like `diffstat` and `colordiff`.
     of the user to ensure that no input line is matched by more than
     one regular expression -- a runtime error is generated otherwise.
 
+    Multiple regular expressions are searched for in parallel (i.e
+    they are compiled into the same automaton); if a single regular
+    expression matches, it is then re-run by itself in order to build
+    up the capture groups.
+
 -i *RE*, \--ignore=RE
 :   Specify character sequences that should be *ignored*. The provided
     RE is only considered as a whole (i.e. individual subgroups are
@@ -89,11 +94,11 @@ tools like `diffstat` and `colordiff`.
         option to summarize changes to values where *wdiff* would be
         too much clutter. For example, changes in large numerical
         quantities such as timestamps, execution times or dates.
-   * *new* Use the corresponding line from the `new` file. This is
+    * *new* Use the corresponding line from the `new` file. This is
         useful when one is interested in where there were changes, but
         needs accurate context information to make sense of the
         change.
-   * *old* Use the corresponding line from the `old` file. See the
+    * *old* Use the corresponding line from the `old` file. See the
         description for *new*.
 
 \--context-tokenization=CTOK
@@ -115,7 +120,7 @@ tools like `diffstat` and `colordiff`.
 
 \--mark-changed-context
 :   Prefix each changed context line with a bang (`!`) character. This
-    can be useful when using `--context-format=new` (or `old) to be
+    can be useful when using `--context-format=new` (or `old`) to be
     informed of which context lines have changes between files, even
     when those changes are not being displayed.
 
@@ -131,6 +136,15 @@ tools like `diffstat` and `colordiff`.
 
 -h, \--help
 :   Display usage
+
+# NOTES
+
+Input is treated as arbitrary bytes. That means that it does not need
+to be of a valid encoding. Conversely, unicode character classes are
+not available when specifying a regular expression.
+
+If neither `-r` nor `-i` are specified, `subdiff` will behave as
+`diff`.
 
 # EXIT STATUS
 
