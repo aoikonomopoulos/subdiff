@@ -3,6 +3,7 @@ name = "subdiff"
 version = "0.1.0"
 authors = ["Angelos Oikonomopoulos"]
 license = "GPL-3.0-or-later"
+keywords = ["diff"]
 
 [dependencies]
 lcs-diff = "0.1.1"

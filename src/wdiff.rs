@@ -91,6 +91,7 @@ impl<'l> Into<CharacterClass<Word<'l>>> for CharacterClass<u8> {
 pub trait HasCharacterClass {
     type Item : Clone + PartialEq;
     fn cc(&self) -> CharacterClass<Self::Item>;
+    fn len(&self) -> usize;
 }
 
 impl HasCharacterClass for u8 {
@@ -107,6 +108,9 @@ impl HasCharacterClass for u8 {
             Any (PhantomData)
         }
     }
+    fn len(&self) -> usize {
+        1
+    }
 }
 
 impl<'l> HasCharacterClass for Word<'l> {
@@ -119,6 +123,9 @@ impl<'l> HasCharacterClass for Word<'l> {
         };
         let cc : CharacterClass<u8> = chars.fold(cc, |cc, ch| cc.merge(&ch.cc()));
         cc.into()
+    }
+    fn len(&self) -> usize {
+        self.0.iter().count()
     }
 }
 
@@ -299,8 +306,8 @@ where
                 // have consumed all commons, and for elements of the
                 // !is_common iterator below.
                 DiffResult::Common (_) => unreachable!(),
-                DiffResult::Added (_) => nadded += 1,
-                DiffResult::Removed (_) => nremoved += 1,
+                DiffResult::Added (el) => nadded += el.data.len(),
+                DiffResult::Removed (el) => nremoved += el.data.len(),
             }
         };
         let cc = match items.next() {
