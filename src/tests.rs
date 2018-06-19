@@ -327,7 +327,7 @@ fn re_and_ignore_re_work() {
 }
 
 #[test]
-fn character_class_wide() {
+fn char_character_class_wide() {
     let conf = Conf {
         debug : false,
         context : 100,
@@ -359,7 +359,7 @@ fn character_class_wide() {
 }
 
 #[test]
-fn character_class_narrow() {
+fn char_character_class_narrow() {
     let conf = Conf {
         debug : false,
         context : 100,
@@ -390,5 +390,61 @@ fn character_class_narrow() {
                  "jun 12 u\n", "abcdef 7 w\n"],
                &["aa zxw c\n", "1 e x\n", "g 0229 h\n", "j zm3w k\n", "n zx24w o\n", "p aBCDEf r\n",
                  "nov 09 u\n", "axcyef 8 w\n"],
+               expected)
+}
+
+#[test]
+fn word_character_class_wide() {
+    let conf = Conf {
+        debug : false,
+        context : 100,
+        context_format : CC (Wide),
+        context_tokenization : Word,
+        ..Conf::default()
+    };
+    let re = Some (vec![
+        // We're testing the context handling, so work with most of the line
+        r"^([a-z]).*$",
+    ]);
+    let expected = join_lines(vec![
+        r"@@ -1,3 +1,3 @@",
+        r"-xd",
+        r"+yd",
+        r" ab \a{2}",
+        // Yaaaah, our diff algo is not picking up the last space
+        // as a common word.
+        r" ab \d{2} \a{2} \w{2} .{6}",
+    ]);
+    test_given(&conf, re, None,
+               &["xd\n", "ab cd\n", "ab 12 cd a1 xy c1#\n"],
+               &["yd\n", "ab de\n", "ab 34 ef 2b xz ?f3\n"],
+               expected)
+}
+
+#[test]
+fn word_character_class_narrow() {
+    let conf = Conf {
+        debug : false,
+        context : 100,
+        context_format : CC (Narrow),
+        context_tokenization : Word,
+        ..Conf::default()
+    };
+    let re = Some (vec![
+        // We're testing the context handling, so work with most of the line
+        r"^([a-z]).*$",
+    ]);
+    let expected = join_lines(vec![
+        r"@@ -1,3 +1,3 @@",
+        r"-xd",
+        r"+yd",
+        r" ab \a+",
+        // Yaaaah, our diff algo is not picking up the last space
+        // as a common word.
+        r" ab \d+ \a+ \w+ .+",
+    ]);
+    test_given(&conf, re, None,
+               &["xd\n", "ab cd\n", "ab 12 cd a1 cx c1#\n"],
+               &["yd\n", "ab de\n", "ab 34 ef 2b lf ?f3\n"],
                expected)
 }
