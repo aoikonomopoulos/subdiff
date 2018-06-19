@@ -1,9 +1,12 @@
 [package]
 name = "subdiff"
+description = "A diff-like utility that considers the selected part of a line"
 version = "0.1.0"
 authors = ["Angelos Oikonomopoulos"]
 license = "GPL-3.0-or-later"
+repository = "https://github.com/aoikonomopoulos/subdiff"
 keywords = ["diff"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 lcs-diff = "0.1.1"
