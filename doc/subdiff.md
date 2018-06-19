@@ -78,7 +78,7 @@ tools like `diffstat` and `colordiff`.
         Character classes are printed out as either \\c{n}, when
         both the old and new versions consist of `n` characters of
         this class, or \\c{o,n} when the old and new versions consist
-        of `o` and `n` number of charecters respectively.
+        of `o` and `n` number of characters respectively.
 	The character classes are
 	     + \\a alphabetic
 	     + \\d digit
