@@ -442,6 +442,40 @@ where
 
 pub fn tokenize<'l>(line : &'l [u8]) -> Vec<Word<'l>> {
     let re = Regex::new(r"\b").unwrap();
+
     // This is where our 'l comes from.
-    re.split(line).map(|w| Word(w)).collect()
+    let mut words : Vec<Word<'l>> = re.split(line).map(|w| Word(w)).collect();
+
+    // Newline handling - splitting on word boundaries unfortunately
+    // means that, if the penultimate character of the line is neither
+    // alphanumeric nor white (e.g. '#'), the final newline might be
+    // grouped with it in a word. This presents problems at least for
+    // the character-class summarization, as we might end up summarizing
+    // the newline away.
+    // Ensure that the final newline is always its own word.
+    let need_split =
+        if words.len() > 0 {
+            let lastw = &words[words.len() - 1];
+            let wlen = lastw.len();
+            if wlen > 1 { // Usually, last is "\n" and wlen == 1
+                let lastc = lastw.0[wlen - 1];
+                if lastc == b'\n' {
+                    Some (wlen)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+    if let Some (wlen) = need_split {
+        words.pop();
+        let len = line.len();
+        // Split Word("...\n") into Word("..."), Word("\n")
+        words.push(Word(&line[(len - wlen -1)..(len - 2)]));
+        words.push(Word(&line[(len - 1)..len]));
+    }
+    words
 }
